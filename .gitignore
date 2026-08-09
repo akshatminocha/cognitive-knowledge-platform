@@ -97,5 +97,21 @@ Temporary Items
 .mypy_cache/
 .ruff_cache/
 
-# Data Folder
+# uv
+.venv/
+uv.lock
+
+# Data & Storage
 data/
+*.duckdb
+*.duckdb.wal
+
+# Evaluation Results
+evaluation/results/
+
+# Docker Volumes (local)
+neo4j_data/
+qdrant_data/
+
+# Streamlit
+.streamlit/

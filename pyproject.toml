@@ -1,0 +1,26 @@
+[project]
+name = "cognitive-knowledge-platform"
+version = "2.0.0"
+description = "Production-grade, industry-agnostic AI platform with agentic knowledge intelligence — featuring Agent Harness (Google ADK), AI Gateway, Configurable Guardrails, Schema-Driven Ontology, and MCP Tool Servers."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Akshat Minocha" }
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/ai-gateway",
+    "packages/guardrails",
+    "packages/ontology-engine",
+    "packages/mcp-servers",
+    "packages/agent-harness",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+]

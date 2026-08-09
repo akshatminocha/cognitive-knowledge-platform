@@ -1,0 +1,58 @@
+# ============================================================================
+# Cognitive Knowledge Platform - Docker Compose
+# Services: Neo4j Community (Graph DB), Qdrant (Vector DB)
+# All services are 100% free and open-source.
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # Neo4j Community Edition — Knowledge Graph Store
+  # UI: http://localhost:7474  |  Bolt: bolt://localhost:7687
+  # Default credentials: neo4j / changeme (set via NEO4J_AUTH)
+  # --------------------------------------------------------------------------
+  neo4j:
+    image: neo4j:5-community
+    container_name: ckp-neo4j
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/changeme}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "neo4j status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --------------------------------------------------------------------------
+  # Qdrant — Vector Embedding Store
+  # REST API: http://localhost:6333  |  Dashboard: http://localhost:6333/dashboard
+  # gRPC: localhost:6334
+  # --------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: ckp-qdrant
+    ports:
+      - "${QDRANT_REST_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  qdrant_data:
