@@ -1,0 +1,198 @@
+# =============================================================================
+# EdTech Domain Schema
+# =============================================================================
+# Knowledge graph structure for education technology:
+# Students, Courses, Instructors, Assessments, Enrollments, and Learning Paths.
+# =============================================================================
+
+name: edtech
+version: "1.0.0"
+description: "Education technology domain schema for student performance, course management, and learning analytics."
+
+entities:
+  - name: Student
+    label: Student
+    description: "A student enrolled in the platform"
+    properties:
+      - name: student_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "STU-001"
+      - name: name
+        type: string
+        required: true
+        example: "Alice Johnson"
+      - name: email
+        type: string
+        example: "alice@university.edu"
+      - name: grade_level
+        type: string
+        example: "Sophomore"
+      - name: gpa
+        type: float
+        example: "3.7"
+    embed_properties: ["name"]
+
+  - name: Course
+    label: Course
+    description: "An academic course or module"
+    properties:
+      - name: course_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "CS-101"
+      - name: title
+        type: string
+        required: true
+        example: "Introduction to Computer Science"
+      - name: description
+        type: string
+        example: "Foundational CS concepts including algorithms and data structures"
+      - name: credits
+        type: integer
+        example: "3"
+      - name: difficulty
+        type: string
+        description: "beginner, intermediate, advanced"
+        example: "beginner"
+    embed_properties: ["title", "description"]
+
+  - name: Instructor
+    label: Instructor
+    description: "A course instructor or professor"
+    properties:
+      - name: instructor_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "INS-001"
+      - name: name
+        type: string
+        required: true
+        example: "Prof. Robert Chen"
+      - name: department
+        type: string
+        example: "Computer Science"
+      - name: expertise
+        type: list[string]
+        example: "['algorithms', 'machine learning']"
+    embed_properties: ["name", "department"]
+
+  - name: Assessment
+    label: Assessment
+    description: "An exam, quiz, or assignment"
+    properties:
+      - name: assessment_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "ASM-001"
+      - name: title
+        type: string
+        required: true
+        example: "Midterm Exam"
+      - name: type
+        type: string
+        description: "exam, quiz, assignment, project"
+        example: "exam"
+      - name: max_score
+        type: float
+        example: "100"
+      - name: due_date
+        type: date
+        example: "2024-10-15"
+    embed_properties: ["title"]
+
+  - name: LearningPath
+    label: LearningPath
+    description: "A curated sequence of courses"
+    properties:
+      - name: path_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "LP-001"
+      - name: title
+        type: string
+        required: true
+        example: "Data Science Fundamentals"
+      - name: description
+        type: string
+        example: "A structured path from statistics to ML"
+      - name: estimated_hours
+        type: integer
+        example: "120"
+    embed_properties: ["title", "description"]
+
+relationships:
+  - name: ENROLLED_IN
+    description: "Student is enrolled in a course"
+    source: Student
+    target: Course
+    properties:
+      - name: enrollment_date
+        type: date
+      - name: status
+        type: string
+        description: "active, completed, dropped, failed"
+
+  - name: TEACHES
+    description: "Instructor teaches a course"
+    source: Instructor
+    target: Course
+
+  - name: HAS_ASSESSMENT
+    description: "Course has an assessment"
+    source: Course
+    target: Assessment
+
+  - name: SUBMITTED
+    description: "Student submitted an assessment"
+    source: Student
+    target: Assessment
+    properties:
+      - name: score
+        type: float
+      - name: submitted_date
+        type: date
+      - name: grade
+        type: string
+
+  - name: INCLUDES_COURSE
+    description: "Learning path includes a course"
+    source: LearningPath
+    target: Course
+    properties:
+      - name: sequence_order
+        type: integer
+
+  - name: FOLLOWING
+    description: "Student is following a learning path"
+    source: Student
+    target: LearningPath
+    properties:
+      - name: progress_percent
+        type: float
+      - name: started_date
+        type: date
+
+  - name: PREREQUISITE_OF
+    description: "Course is a prerequisite for another course"
+    source: Course
+    target: Course
+
+extraction_rules:
+  - entity_type: Student
+    extraction_prompt: "Extract student info: ID, name, email, grade level."
+    required_properties: ["student_id", "name"]
+
+  - entity_type: Course
+    extraction_prompt: "Extract course details: ID, title, description, credits, difficulty."
+    required_properties: ["course_id", "title"]

@@ -1,0 +1,212 @@
+# =============================================================================
+# Enterprise Operations Domain Schema
+# =============================================================================
+# Knowledge graph structure for internal enterprise operations:
+# Employees, Departments, Projects, Documents, Policies, and Incidents.
+# =============================================================================
+
+name: enterprise_ops
+version: "1.0.0"
+description: "Enterprise operations domain schema for HR, project management, policies, and incident tracking."
+
+entities:
+  - name: Employee
+    label: Employee
+    description: "An employee in the organization"
+    properties:
+      - name: employee_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "EMP-001"
+      - name: name
+        type: string
+        required: true
+        example: "Michael Brown"
+      - name: email
+        type: string
+        example: "michael.brown@company.com"
+      - name: title
+        type: string
+        example: "Senior Engineer"
+      - name: hire_date
+        type: date
+        example: "2020-03-01"
+      - name: performance_rating
+        type: float
+        description: "Rating out of 5"
+        example: "4.2"
+    embed_properties: ["name", "title"]
+
+  - name: Department
+    label: Department
+    description: "An organizational department or team"
+    properties:
+      - name: department_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "DEPT-001"
+      - name: name
+        type: string
+        required: true
+        example: "Engineering"
+      - name: budget
+        type: float
+        example: "2500000.00"
+      - name: headcount
+        type: integer
+        example: "45"
+    embed_properties: ["name"]
+
+  - name: Project
+    label: Project
+    description: "A business project or initiative"
+    properties:
+      - name: project_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "PRJ-001"
+      - name: name
+        type: string
+        required: true
+        example: "Platform Migration"
+      - name: status
+        type: string
+        description: "planning, active, on_hold, completed"
+        example: "active"
+      - name: start_date
+        type: date
+        example: "2024-01-15"
+      - name: end_date
+        type: date
+        example: "2024-12-31"
+      - name: priority
+        type: string
+        description: "low, medium, high, critical"
+        example: "high"
+    embed_properties: ["name"]
+
+  - name: Document
+    label: Document
+    description: "An enterprise document (policy, SOP, guide)"
+    properties:
+      - name: document_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "DOC-001"
+      - name: title
+        type: string
+        required: true
+        example: "Remote Work Policy"
+      - name: category
+        type: string
+        description: "policy, sop, guide, report"
+        example: "policy"
+      - name: last_updated
+        type: date
+        example: "2024-05-01"
+      - name: version
+        type: string
+        example: "2.1"
+    embed_properties: ["title", "category"]
+
+  - name: Incident
+    label: Incident
+    description: "An operational incident or issue"
+    properties:
+      - name: incident_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "INC-001"
+      - name: title
+        type: string
+        required: true
+        example: "Production database outage"
+      - name: severity
+        type: string
+        description: "P1, P2, P3, P4"
+        example: "P1"
+      - name: status
+        type: string
+        description: "open, investigating, resolved, closed"
+        example: "resolved"
+      - name: created_at
+        type: datetime
+        example: "2024-06-10T03:15:00Z"
+      - name: resolved_at
+        type: datetime
+        example: "2024-06-10T05:45:00Z"
+      - name: root_cause
+        type: string
+        example: "Connection pool exhaustion under peak load"
+    embed_properties: ["title", "root_cause"]
+
+relationships:
+  - name: BELONGS_TO
+    description: "Employee belongs to a department"
+    source: Employee
+    target: Department
+
+  - name: MANAGES
+    description: "Employee manages a department"
+    source: Employee
+    target: Department
+
+  - name: WORKS_ON
+    description: "Employee works on a project"
+    source: Employee
+    target: Project
+    properties:
+      - name: role
+        type: string
+        description: "lead, member, consultant"
+      - name: allocation_percent
+        type: float
+
+  - name: OWNED_BY
+    description: "Project is owned by a department"
+    source: Project
+    target: Department
+
+  - name: AUTHORED
+    description: "Employee authored a document"
+    source: Employee
+    target: Document
+
+  - name: APPLIES_TO
+    description: "Document applies to a department"
+    source: Document
+    target: Department
+
+  - name: REPORTED
+    description: "Employee reported an incident"
+    source: Employee
+    target: Incident
+
+  - name: RESOLVED_BY
+    description: "Incident was resolved by an employee"
+    source: Incident
+    target: Employee
+
+  - name: AFFECTS
+    description: "Incident affects a project"
+    source: Incident
+    target: Project
+
+extraction_rules:
+  - entity_type: Employee
+    extraction_prompt: "Extract employee details: ID, name, title, hire date."
+    required_properties: ["employee_id", "name"]
+
+  - entity_type: Incident
+    extraction_prompt: "Extract incident info: title, severity, status, root cause."
+    required_properties: ["title", "severity"]
