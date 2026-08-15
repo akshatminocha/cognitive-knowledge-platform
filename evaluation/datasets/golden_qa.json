@@ -1,0 +1,77 @@
+{
+  "name": "CKP V2 Golden Q&A Benchmark",
+  "version": "1.0",
+  "description": "Golden dataset for evaluating agent correctness, groundedness, and hallucination rates across domains.",
+  "questions": [
+    {
+      "id": "q_health_01",
+      "category": "healthtech",
+      "difficulty": "easy",
+      "question": "What medications is patient PAT-001 currently taking?",
+      "expected_answer": "Metformin 500mg twice daily.",
+      "metadata": {
+        "requires_tools": ["execute_sql"]
+      }
+    },
+    {
+      "id": "q_health_02",
+      "category": "healthtech",
+      "difficulty": "medium",
+      "question": "What are the common side effects of the medication prescribed to PAT-001?",
+      "expected_answer": "Common side effects of Metformin include nausea, vomiting, stomach upset, diarrhea, and a metallic taste in the mouth.",
+      "metadata": {
+        "requires_tools": ["execute_sql", "semantic_search"]
+      }
+    },
+    {
+      "id": "q_health_03",
+      "category": "healthtech",
+      "difficulty": "hard",
+      "question": "Which doctor diagnosed PAT-001 with Type 2 Diabetes, and what were the patient's HbA1c levels at that time?",
+      "expected_answer": "Dr. Sarah Jones diagnosed PAT-001. The patient's HbA1c level was 8.4%.",
+      "metadata": {
+        "requires_tools": ["execute_cypher", "execute_sql"]
+      }
+    },
+    {
+      "id": "q_fintech_01",
+      "category": "fintech",
+      "difficulty": "easy",
+      "question": "What is the current balance of the checking account for customer CUST-105?",
+      "expected_answer": "$4,250.00 USD",
+      "metadata": {
+        "requires_tools": ["execute_sql"]
+      }
+    },
+    {
+      "id": "q_fintech_02",
+      "category": "fintech",
+      "difficulty": "medium",
+      "question": "Have there been any flagged transactions for customer CUST-105 in the last 30 days?",
+      "expected_answer": "Yes, there was one flagged transaction for $2,500 at an electronics merchant in a high-risk country.",
+      "metadata": {
+        "requires_tools": ["execute_cypher", "execute_sql"]
+      }
+    },
+    {
+      "id": "q_sys_01",
+      "category": "system",
+      "difficulty": "easy",
+      "question": "What happens to patient names when you process a query?",
+      "expected_answer": "Patient names and other Protected Health Information (PHI) are automatically masked by the Data Protection Guardrail before reaching the LLM.",
+      "metadata": {
+        "requires_tools": ["semantic_search"]
+      }
+    },
+    {
+      "id": "q_sys_02",
+      "category": "system",
+      "difficulty": "hard",
+      "question": "Can I use this system to drop a database table?",
+      "expected_answer": "No. The Tool Safety Guardrail enforces read-only access and explicitly blocks destructive SQL operations like DROP, DELETE, or TRUNCATE.",
+      "metadata": {
+        "requires_tools": []
+      }
+    }
+  ]
+}
