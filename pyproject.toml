@@ -16,6 +16,7 @@ members = [
     "packages/ontology-engine",
     "packages/mcp-servers",
     "packages/agent-harness",
+    "platform-app"
 ]
 
 [tool.uv]
