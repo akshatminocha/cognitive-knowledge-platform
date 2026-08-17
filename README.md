@@ -45,7 +45,14 @@ cp .env.example .env
 ```
 
 ### 3. Install the Platform
-Install all packages in development mode using `uv` (recommended) or `pip`:
+
+**Option 1: Using `uv` (Recommended)**
+Because this repository is configured as a `uv.workspace`, you can install everything (core packages + platform apps) in a single command:
+```bash
+uv sync
+```
+
+**Option 2: Using standard `pip`**
 ```bash
 # Install core packages
 pip install -e packages/ai-gateway
@@ -55,24 +62,22 @@ pip install -e packages/mcp-servers
 pip install -e packages/agent-harness
 
 # Install platform apps
-pip install -r platform-app/requirements.txt
+pip install -e platform-app
 ```
 
 ### 4. Run the Apps
 **Start Backend (FastAPI)**:
 ```bash
-cd platform-app
-uvicorn backend.main:app --reload --port 8000
+uv run uvicorn platform-app.backend.main:app --reload --port 8000
 ```
 
 **Start Frontend (Streamlit)**:
 ```bash
-cd platform-app
-streamlit run frontend/app.py
+uv run streamlit run platform-app/frontend/app.py
 ```
 
 ## Running Evaluations
 To test the agent's performance against the golden Q&A dataset:
 ```bash
-python -m evaluation.run_benchmarks --model gemini-2.5-flash
+uv run python -m evaluation.run_benchmarks --model gemini-2.5-flash
 ```
