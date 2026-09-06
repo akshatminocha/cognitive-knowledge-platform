@@ -220,3 +220,84 @@ async def get_guardrail_diagnostics():
     """Get detailed guardrail configuration and stats."""
     # TODO: Wire to GuardrailEngine.get_diagnostics()
     return {"status": "pending_integration"}
+
+
+# ---------------------------------------------------------------------------
+# Skills Library Endpoints
+# ---------------------------------------------------------------------------
+class SkillCreateRequest(BaseModel):
+    """Request to create a new skill from natural language."""
+
+    description: str = Field(description="Plain-English description of the desired skill")
+    domain: str = Field(default="general", description="Target domain")
+
+
+@router.get("/skills")
+async def list_skills():
+    """List all available agent skills in the library."""
+    # TODO: Wire to SkillRegistry.list_all()
+    return {"skills": [], "status": "pending_integration"}
+
+
+@router.get("/skills/{skill_name}")
+async def get_skill(skill_name: str):
+    """Get the full definition of a specific skill."""
+    # TODO: Wire to SkillRegistry.get(skill_name)
+    return {"skill_name": skill_name, "status": "pending_integration"}
+
+
+@router.post("/skills/create")
+async def create_skill(request: SkillCreateRequest):
+    """
+    Create a new agent skill from a natural language description.
+
+    Uses the Skill Builder Agent to autonomously generate a valid
+    skill YAML and register it in the library.
+    """
+    # TODO: Wire to SkillBuilderAgent.create_and_save()
+    logger.info(f"Skill creation request: {request.description[:80]}...")
+    return {
+        "status": "pending_integration",
+        "description": request.description,
+        "domain": request.domain,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Prompt Templates Library Endpoints
+# ---------------------------------------------------------------------------
+class PromptCreateRequest(BaseModel):
+    """Request to create a new prompt template from natural language."""
+
+    description: str = Field(description="Plain-English description of the desired template")
+
+
+@router.get("/prompts")
+async def list_prompts():
+    """List all available prompt templates in the library."""
+    # TODO: Wire to PromptRegistry.list_all()
+    return {"prompts": [], "status": "pending_integration"}
+
+
+@router.get("/prompts/{template_name}")
+async def get_prompt(template_name: str):
+    """Get the full definition of a specific prompt template."""
+    # TODO: Wire to PromptRegistry.get(template_name)
+    return {"template_name": template_name, "status": "pending_integration"}
+
+
+@router.post("/prompts/create")
+async def create_prompt(request: PromptCreateRequest):
+    """
+    Create a new prompt template from a natural language description.
+
+    Uses the Prompt Builder Agent to autonomously generate a valid
+    Jinja2 template and register it in the library.
+    """
+    # TODO: Wire to PromptBuilderAgent.create_and_save()
+    logger.info(f"Prompt creation request: {request.description[:80]}...")
+    return {
+        "status": "pending_integration",
+        "description": request.description,
+    }
+

@@ -1,0 +1,53 @@
+name: summarization
+version: "1.0.0"
+description: "Summarize documents or data with configurable length and focus areas."
+tags: [summarization, analysis, general]
+author: system
+
+template: |
+  You are a {{ domain }} domain expert tasked with summarizing the following content.
+
+  ## Instructions
+  - Produce a {{ summary_style }} summary.
+  - Maximum length: {{ max_length }} words.
+  - Focus on: {{ focus_areas | join(', ') }}.
+  - Use bullet points for key findings.
+  - Highlight any anomalies, risks, or notable patterns.
+
+  {% if schema_prompt %}
+  ## Domain Schema Context
+  {{ schema_prompt }}
+  {% endif %}
+
+  ## Content to Summarize
+  {{ content }}
+
+variables:
+  - name: domain
+    type: string
+    required: true
+    description: "The active domain (e.g., healthtech, fintech)"
+  - name: content
+    type: string
+    required: true
+    description: "The text content to summarize"
+  - name: summary_style
+    type: string
+    required: false
+    default: "concise"
+    description: "Style of summary (concise, detailed, executive)"
+  - name: max_length
+    type: integer
+    required: false
+    default: 300
+    description: "Maximum word count for the summary"
+  - name: focus_areas
+    type: "list[string]"
+    required: false
+    default: ["key findings", "risks", "actionable insights"]
+    description: "Areas to focus on in the summary"
+  - name: schema_prompt
+    type: string
+    required: false
+    default: ""
+    description: "Optional schema context for domain-aware summarization"

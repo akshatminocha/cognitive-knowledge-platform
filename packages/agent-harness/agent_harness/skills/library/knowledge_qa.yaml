@@ -1,0 +1,52 @@
+name: knowledge_qa
+version: "1.0.0"
+description: "General-purpose grounded Q&A over the knowledge graph. The default skill used when no specialized skill matches."
+domain: general
+tags: [qa, retrieval, grounding, default]
+author: system
+
+system_prompt: |
+  You are a knowledge assistant for the Cognitive Knowledge Platform.
+  Your job is to answer user questions accurately by querying the
+  knowledge graph (Neo4j), vector store (Qdrant), and tabular data (PostgreSQL).
+
+  Rules:
+  - Always ground your answers in retrieved data. Never fabricate facts.
+  - Cite sources when possible.
+  - If you cannot find the answer, say so honestly.
+  - Use the most specific tool for the query type:
+    - graph_query for relationship/entity lookups
+    - semantic_search for meaning-based retrieval
+    - sql_query for structured/tabular data
+
+tools:
+  - graph_query
+  - semantic_search
+  - sql_query
+
+input_schema:
+  - name: query
+    type: string
+    required: true
+    description: "The user's natural language question"
+
+output_schema:
+  - name: answer
+    type: string
+    description: "The grounded answer to the question"
+  - name: sources
+    type: "list[string]"
+    description: "List of source references used"
+
+guardrails:
+  pii_masking: standard
+  max_steps: 10
+  max_tokens: 4096
+  require_grounding: true
+
+examples:
+  - input:
+      query: "What medications is patient PAT-001 taking?"
+    output:
+      answer: "Patient PAT-001 is currently taking Metformin 500mg (twice daily) and Lisinopril 10mg (once daily)."
+      sources: ["graph_query: MATCH (p:Patient {patient_id: 'PAT-001'})-[:TAKES]->(m:Medication) RETURN m"]

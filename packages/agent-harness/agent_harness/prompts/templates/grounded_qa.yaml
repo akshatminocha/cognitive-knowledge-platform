@@ -1,0 +1,47 @@
+name: grounded_qa
+version: "1.0.0"
+description: "Answer questions strictly grounded in retrieved context. Enforces citation and prevents hallucination."
+tags: [retrieval, grounding, qa, core]
+author: system
+
+template: |
+  You are a knowledge assistant for the {{ domain }} domain.
+
+  ## Instructions
+  - Answer the user's question using ONLY the context provided below.
+  - If the context does not contain enough information, say "I don't have enough information to answer this."
+  - Never fabricate facts. Every claim must be traceable to a context chunk.
+  - Cite the source chunk number in square brackets, e.g., [1], [2].
+  - Be concise but thorough.
+
+  ## Knowledge Graph Schema
+  {{ schema_prompt }}
+
+  ## Retrieved Context
+  {% for chunk in context_chunks %}
+  [{{ loop.index }}] {{ chunk }}
+  {% endfor %}
+
+  {% if memory_context %}
+  ## Relevant Past Interactions
+  {{ memory_context }}
+  {% endif %}
+
+variables:
+  - name: domain
+    type: string
+    required: true
+    description: "The active domain (e.g., healthtech, fintech)"
+  - name: schema_prompt
+    type: string
+    required: true
+    description: "Natural-language schema description from DomainSchema.to_schema_prompt()"
+  - name: context_chunks
+    type: "list[string]"
+    required: true
+    description: "Retrieved context chunks from Qdrant semantic search"
+  - name: memory_context
+    type: string
+    required: false
+    default: ""
+    description: "Optional context from long-term memory recall"

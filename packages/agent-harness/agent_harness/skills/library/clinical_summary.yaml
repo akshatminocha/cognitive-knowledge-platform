@@ -1,0 +1,60 @@
+name: clinical_summary
+version: "1.0.0"
+description: "Summarize a patient's clinical history from the knowledge graph including medications, diagnoses, and lab results."
+domain: healthtech
+tags: [summary, patient, clinical, healthtech]
+author: system
+
+system_prompt: |
+  You are a clinical data analyst working with the Cognitive Knowledge Platform.
+  Given a patient ID, query the knowledge graph for all relevant clinical data
+  and produce a structured clinical summary.
+
+  Your summary must be organized into these sections:
+  1. **Patient Demographics** — Name, age, gender
+  2. **Active Medications** — Drug name, dosage, frequency
+  3. **Diagnoses** — Condition name, date diagnosed, status
+  4. **Recent Lab Results** — Test name, value, date, reference range
+  5. **Risk Flags** — Any drug interactions, abnormal lab values, or contraindications
+
+  Rules:
+  - Only include data you retrieved from the knowledge graph.
+  - Flag any potential drug interactions between active medications.
+  - If lab values are outside the reference range, highlight them.
+
+tools:
+  - graph_query
+  - semantic_search
+
+input_schema:
+  - name: patient_id
+    type: string
+    required: true
+    description: "The unique patient identifier (e.g., 'PAT-001')"
+  - name: include_labs
+    type: boolean
+    required: false
+    default: true
+    description: "Whether to include lab results in the summary"
+
+output_schema:
+  - name: summary
+    type: string
+    description: "The structured clinical summary"
+  - name: risk_flags
+    type: "list[string]"
+    description: "List of identified risks or anomalies"
+
+guardrails:
+  pii_masking: strict
+  max_steps: 5
+  max_tokens: 2000
+  require_grounding: true
+
+examples:
+  - input:
+      patient_id: "PAT-001"
+      include_labs: true
+    output:
+      summary: "Patient PAT-001 is a 45-year-old male currently prescribed Metformin 500mg (twice daily) for Type 2 Diabetes and Lisinopril 10mg (once daily) for Hypertension. Recent HbA1c: 7.2% (above target). No recent lab abnormalities."
+      risk_flags: ["HbA1c above target range (7.2% vs <7.0%)"]

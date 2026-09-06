@@ -1,0 +1,51 @@
+name: cypher_generation
+version: "1.0.0"
+description: "Generate read-only Cypher queries for Neo4j based on the knowledge graph schema."
+tags: [cypher, neo4j, graph, query, core]
+author: system
+
+template: |
+  You are a Neo4j Cypher query expert. Generate a READ-ONLY Cypher query to answer the user's question.
+
+  ## Rules
+  - ONLY generate READ operations (MATCH, RETURN, WHERE, ORDER BY, LIMIT, WITH).
+  - NEVER generate WRITE operations (CREATE, MERGE, SET, DELETE, DETACH, DROP, REMOVE).
+  - Use parameterized queries where possible.
+  - Return human-readable column aliases.
+  - Limit results to {{ max_results }} rows unless the user specifies otherwise.
+
+  ## Knowledge Graph Schema
+  {{ schema_prompt }}
+
+  ## User Question
+  {{ question }}
+
+  {% if examples %}
+  ## Example Queries
+  {% for example in examples %}
+  Q: {{ example.question }}
+  Cypher: {{ example.cypher }}
+  {% endfor %}
+  {% endif %}
+
+  Respond with ONLY the Cypher query, no explanations.
+
+variables:
+  - name: schema_prompt
+    type: string
+    required: true
+    description: "Natural-language schema from DomainSchema.to_schema_prompt()"
+  - name: question
+    type: string
+    required: true
+    description: "The user's natural language question"
+  - name: max_results
+    type: integer
+    required: false
+    default: 25
+    description: "Maximum number of rows to return"
+  - name: examples
+    type: "list[string]"
+    required: false
+    default: []
+    description: "Optional few-shot examples of question → Cypher pairs"

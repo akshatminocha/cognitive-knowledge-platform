@@ -23,6 +23,7 @@ from typing import Any, Optional
 from agent_harness.context_engine import ContextEngine, CanonicalMessage, Role
 from agent_harness.memory import MemoryManager
 from agent_harness.reflection import ReflectionLoop
+from agent_harness.skills.models import Skill
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class RunnerConfig:
     enable_memory: bool = True
     active_schema: str = "healthtech"
     active_model: str = "gemini-2.5-flash"
+    active_skill: Optional[Skill] = None
 
 
 # ---------------------------------------------------------------------------
@@ -118,14 +120,28 @@ class AgentRunner:
         Execute a full agent run for a user query.
 
         Pipeline:
-        1. Store user message in canonical context
-        2. Retrieve relevant memory (long-term)
-        3. Build the LLM prompt (schema + context + memory)
-        4. Execute ADK agent loop with step budget
-        5. Return final result with governance metadata
+        1. Apply active skill overrides (if set)
+        2. Store user message in canonical context
+        3. Retrieve relevant memory (long-term)
+        4. Build the LLM prompt (schema + context + memory)
+        5. Execute ADK agent loop with step budget
+        6. Return final result with governance metadata
         """
         start_time = time.monotonic()
         self._recent_tool_calls.clear()
+
+        # Apply skill overrides if an active skill is set
+        effective_max_steps = self.config.max_steps
+        effective_max_tokens = self.config.max_tokens_per_step
+        skill = self.config.active_skill
+
+        if skill:
+            effective_max_steps = skill.guardrails.max_steps
+            effective_max_tokens = skill.guardrails.max_tokens
+            logger.info(
+                f"Running with skill '{skill.name}' "
+                f"(tools={skill.tools}, max_steps={effective_max_steps})"
+            )
 
         result = RunResult(
             query=query,
@@ -157,7 +173,7 @@ class AgentRunner:
         # orchestration skeleton that wraps the ADK call.
         step_index = 0
 
-        while step_index < self.config.max_steps:
+        while step_index < effective_max_steps:
             step_start = time.monotonic()
             step_index += 1
 
