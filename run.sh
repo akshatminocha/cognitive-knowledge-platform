@@ -17,7 +17,7 @@ uv sync
 
 # 4. Start Backend (in background)
 echo "Starting FastAPI Backend..."
-nohup uv run uvicorn platform_app.backend.main:app --host 0.0.0.0 --port 8000 --reload > backend.log 2>&1 &
+nohup uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload > backend.log 2>&1 &
 BACKEND_PID=$!
 echo "Backend running (PID: $BACKEND_PID)"
 

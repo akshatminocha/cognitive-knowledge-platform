@@ -3,7 +3,7 @@
 This guide walks you through configuring, installing, and running the Cognitive Knowledge Platform (v2) locally. The v2 architecture is highly modular and utilizes a `uv` workspace.
 
 ## 1. Prerequisites
-- **Python 3.12+**
+- **Python 3.13+**
 - **uv** (Package manager. Install via `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - **Docker Desktop** (Required for the data fabric)
 

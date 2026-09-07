@@ -25,7 +25,7 @@ The v2 platform has been completely rewritten from a monolithic LangChain applic
 
 ## Tech Stack (100% Open Source)
 
-- **Execution**: Python 3.12+, Google ADK v2.6+
+- **Execution**: Python 3.13+, Google ADK v2.6+
 - **Data Fabric**: Neo4j (Graph), Qdrant (Vector), PostgreSQL (Tabular)
 - **LLM Support**: Gemini, OpenAI, Anthropic, Ollama
 - **APIs**: FastAPI, MCP, Streamlit

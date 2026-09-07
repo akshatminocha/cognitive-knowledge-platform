@@ -2,7 +2,7 @@
 name = "ckp-platform-app"
 version = "0.1.0"
 description = "FastAPI backend and Streamlit frontend for the Cognitive Knowledge Platform"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = "MIT"
 dependencies = [
     "fastapi>=0.100.0",

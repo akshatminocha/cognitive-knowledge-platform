@@ -26,7 +26,7 @@ infra-down:
 # --- Development ---
 dev:
 	@echo "Starting FastAPI backend..."
-	uv run uvicorn platform_app.backend.main:app --reload --host 0.0.0.0 --port 8000
+	uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 
 frontend:
 	@echo "Starting Streamlit frontend..."

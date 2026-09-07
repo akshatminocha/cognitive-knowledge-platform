@@ -2,7 +2,7 @@
 name = "ckp-mcp-servers"
 version = "0.1.0"
 description = "MCP Tool Servers — FastMCP servers for Graph (Neo4j), Retrieval (Qdrant), and Tabular (PostgreSQL) data access via the Model Context Protocol."
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = "MIT"
 dependencies = [
     "fastmcp>=3.0",

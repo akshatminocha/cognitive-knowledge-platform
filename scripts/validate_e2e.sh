@@ -38,13 +38,13 @@ echo "Infrastructure is up."
 
 # 4. Data Generation
 echo -e "\n${YELLOW}[4/9] Generating synthetic data...${NC}"
-uv run python -m platform-app.backend.generation.synthetic_data
+uv run python -m backend.generation.synthetic_data
 echo "Synthetic data generated successfully."
 
 # 5. Service Startup
 echo -e "\n${YELLOW}[5/9] Starting FastAPI backend...${NC}"
 # Start the backend in the background and save its PID
-uv run uvicorn platform-app.backend.main:app --port 8000 &
+uv run uvicorn backend.main:app --port 8000 &
 BACKEND_PID=$!
 
 echo "Waiting 10 seconds for backend to start..."
@@ -53,7 +53,7 @@ sleep 10
 # Check if backend is actually running
 if ! kill -0 $BACKEND_PID > /dev/null 2>&1; then
     echo -e "${RED}Error: FastAPI backend failed to start.${NC}"
-    docker-compose down
+    docker compose down
     exit 1
 fi
 echo "FastAPI backend is running (PID: $BACKEND_PID)."
@@ -65,7 +65,7 @@ HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/healt
 if [ "$HTTP_STATUS" != "200" ]; then
     echo -e "${RED}Error: Healthcheck failed with status $HTTP_STATUS${NC}"
     kill $BACKEND_PID
-    docker-compose down
+    docker compose down
     exit 1
 fi
 echo "Healthcheck passed (200 OK)."
@@ -92,7 +92,7 @@ echo "Evaluation suite completed."
 # 9. Teardown
 echo -e "\n${YELLOW}[9/9] Tearing down...${NC}"
 kill $BACKEND_PID
-docker-compose down
+docker compose down
 
 echo -e "\n${GREEN}======================================================${NC}"
 echo -e "${GREEN}E2E VALIDATION SUCCESSFUL!${NC}"
