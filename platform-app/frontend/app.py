@@ -131,13 +131,132 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ---------------------------------------------------------------------------
+# Custom CSS Styling (Glassmorphism, Animations, Fonts)
+# ---------------------------------------------------------------------------
+CUSTOM_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif !important;
+}
+
+/* Removed all header-hiding CSS to ensure the sidebar toggle is completely untouched and visible */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #0F1117;
+}
+::-webkit-scrollbar-thumb {
+    background: #2D3240;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #7A52F4;
+}
+
+.stButton > button {
+    border-radius: 8px !important;
+    transition: all 0.3s ease !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+.stButton > button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(122,82,244, 0.4) !important;
+    border-color: #7A52F4 !important;
+}
+
+[data-testid="stSidebar"] {
+    background: rgba(30, 33, 43, 0.7) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-right: 1px solid rgba(255,255,255,0.05) !important;
+}
+
+/* Transform Sidebar Radio into a Premium Vertical Menu */
+[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+    gap: 8px;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] {
+    background-color: transparent;
+    padding: 12px 16px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"]:hover {
+    background-color: rgba(122,82,244, 0.1);
+    border-color: rgba(122,82,244, 0.3);
+    transform: translateX(4px);
+}
+/* Hide the ugly radio circle */
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] > div:first-child {
+    display: none;
+}
+/* Style the text inside the radio block */
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-baseweb="radio"] p {
+    font-size: 1.05rem;
+    font-weight: 500;
+}
+
+
+.stChatInputContainer {
+    background: rgba(30, 33, 43, 0.6) !important;
+    backdrop-filter: blur(10px) !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+}
+
+[data-testid="stExpander"] {
+    background: rgba(30, 33, 43, 0.4) !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(255,255,255,0.05) !important;
+    transition: all 0.3s ease !important;
+}
+[data-testid="stExpander"]:hover {
+    border-color: rgba(122,82,244, 0.5) !important;
+    background: rgba(30, 33, 43, 0.7) !important;
+}
+
+[data-testid="stMetricValue"] {
+    font-weight: 700 !important;
+    background: -webkit-linear-gradient(45deg, #7A52F4, #00D2FF);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+[data-baseweb="input"], [data-baseweb="textarea"], [data-baseweb="select"] {
+    border-radius: 8px !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    transition: all 0.3s ease !important;
+}
+[data-baseweb="input"]:focus-within, [data-baseweb="textarea"]:focus-within {
+    border-color: #7A52F4 !important;
+    box-shadow: 0 0 0 1px #7A52F4 !important;
+}
+
+/* Gradient Header */
+.gradient-text {
+    background: -webkit-linear-gradient(45deg, #7A52F4, #00D2FF);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+}
+</style>
+"""
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
 
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.title("🧠 CKP")
-    st.caption("Cognitive Knowledge Platform v2")
+    st.markdown("<h1 class='gradient-text' style='text-align: center;'>🧠 CKP</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #a1a1aa;'>Cognitive Knowledge Platform v2</p>", unsafe_allow_html=True)
 
     st.divider()
 
@@ -170,8 +289,8 @@ with st.sidebar:
 # Chat Page
 # ---------------------------------------------------------------------------
 if page == "💬 Chat":
-    st.header("💬 Knowledge Agent")
-    st.caption("Ask questions about your ingested data using natural language.")
+    st.markdown("<h2 class='gradient-text'>💬 Knowledge Agent</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #a1a1aa; font-size: 1.1em;'>Ask questions about your ingested data using natural language.</p>", unsafe_allow_html=True)
 
     # Initialize chat history
     if "messages" not in st.session_state:
@@ -235,8 +354,8 @@ if page == "💬 Chat":
 # Ingest Page
 # ---------------------------------------------------------------------------
 elif page == "📤 Ingest":
-    st.header("📤 Data Ingestion")
-    st.caption("Upload files to build your knowledge graph.")
+    st.markdown("<h2 class='gradient-text'>📤 Data Ingestion</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #a1a1aa; font-size: 1.1em;'>Upload files to build your knowledge graph.</p>", unsafe_allow_html=True)
 
     col1, col2 = st.columns([2, 1])
 
@@ -278,8 +397,8 @@ elif page == "📤 Ingest":
 # Skills & Prompts Library Page
 # ---------------------------------------------------------------------------
 elif page == "🧩 Skills & Prompts":
-    st.header("🧩 Skills & Prompts Library")
-    st.caption("Browse, inspect, and create reusable agent skills and prompt templates.")
+    st.markdown("<h2 class='gradient-text'>🧩 Skills & Prompts Library</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #a1a1aa; font-size: 1.1em;'>Browse, inspect, and create reusable agent skills and prompt templates.</p>", unsafe_allow_html=True)
 
     skill_tab, prompt_tab = st.tabs(["🛠️ Skills Library", "📝 Prompt Templates"])
 
@@ -444,8 +563,8 @@ elif page == "🧩 Skills & Prompts":
 # Diagnostics Page
 # ---------------------------------------------------------------------------
 elif page == "🔧 Diagnostics":
-    st.header("🔧 System Diagnostics")
-    st.caption("Monitor platform health and configuration.")
+    st.markdown("<h2 class='gradient-text'>🔧 System Diagnostics</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #a1a1aa; font-size: 1.1em;'>Monitor platform health and configuration.</p>", unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
 
