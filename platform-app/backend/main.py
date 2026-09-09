@@ -19,6 +19,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from agent_harness.runner import AgentRunner
+from agent_harness.skills.registry import SkillRegistry
+from agent_harness.prompts.registry import PromptRegistry
+from guardrails.engine import GuardrailEngine
+from ai_gateway.gateway import GatewayClient
+from ontology_engine.manager import OntologyManager
+
 from backend.routes import router
 
 logger = logging.getLogger(__name__)
@@ -42,12 +49,20 @@ async def lifespan(app: FastAPI):
     """Application lifespan — initialize and tear down shared resources."""
     logger.info("CKP Platform starting up...")
 
-    # TODO: Initialize shared resources on startup:
-    # - AI Gateway instance
-    # - GuardrailEngine instance
-    # - OntologyManager with active schema
-    # - AgentRunner with all components wired
-    # These will be stored in app.state for route handlers to access.
+    # Initialize shared resources on startup:
+    app.state.gateway = GatewayClient()
+    app.state.guardrails = GuardrailEngine()
+    app.state.ontology_manager = OntologyManager()
+    
+    # Initialize registries
+    app.state.skill_registry = SkillRegistry()
+    app.state.skill_registry.load_directory()
+    
+    app.state.prompt_registry = PromptRegistry()
+    app.state.prompt_registry.load_directory()
+    
+    # Initialize the core runner
+    app.state.runner = AgentRunner()
 
     logger.info("CKP Platform ready")
     yield

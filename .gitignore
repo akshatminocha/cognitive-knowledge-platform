@@ -108,6 +108,7 @@ data/
 
 # Evaluation Results
 evaluation/results/
+evaluation/reports/
 
 # Docker Volumes (local)
 neo4j_data/

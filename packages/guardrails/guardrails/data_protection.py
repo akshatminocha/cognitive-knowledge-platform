@@ -122,7 +122,7 @@ class DataProtector:
     def __init__(self, config: Optional[DataProtectionConfig] = None) -> None:
         self.config = config or DataProtectionConfig()
         self._analyzer: Optional[AnalyzerEngine] = None  # type: ignore[assignment]
-        self._token_map = TokenMap(format=self.config.mask_format)
+        self._token_map = TokenMap(_format=self.config.mask_format)
         self._fallback_patterns = self._build_fallback_patterns()
 
         if PRESIDIO_AVAILABLE:

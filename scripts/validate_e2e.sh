@@ -25,7 +25,7 @@ echo "Prerequisites passed."
 # 2. Environment Setup
 echo -e "\n${YELLOW}[2/9] Setting up environment via uv workspace...${NC}"
 uv sync
-uv run spacy download en_core_web_md
+uv run spacy download en_core_web_lg
 echo "Environment setup complete."
 
 # 3. Infrastructure

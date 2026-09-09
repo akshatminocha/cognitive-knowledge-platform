@@ -13,8 +13,11 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile, Request
 from pydantic import BaseModel, Field
+
+from agent_harness.skills.skill_builder_agent import SkillBuilderAgent
+from agent_harness.prompts.prompt_builder_agent import PromptBuilderAgent
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,7 @@ class QueryRequest(BaseModel):
     session_id: Optional[str] = Field(default=None, description="Session ID for context continuity")
     schema_name: Optional[str] = Field(default="healthtech", description="Active domain schema")
     model: Optional[str] = Field(default="gemini-2.5-flash", description="LLM model to use")
+    active_skill: Optional[str] = Field(default="auto", description="Skill to execute, 'auto' for routing")
 
 
 class QueryResponse(BaseModel):
@@ -86,29 +90,60 @@ class DiagnosticsResponse(BaseModel):
 # Query Endpoints
 # ---------------------------------------------------------------------------
 @router.post("/query", response_model=QueryResponse)
-async def query_agent(request: QueryRequest):
+async def query_agent(request_body: QueryRequest, request: Request):
     """
     Send a natural language query to the CKP agent.
-
-    The query flows through the full governance pipeline:
-    1. Input guardrails (PII masking + injection detection)
-    2. Agent execution with MCP tools
-    3. Output guardrails (groundedness check)
-    4. PII re-hydration (if authorized)
     """
-    # TODO: Wire to AgentRunner.run()
-    # runner = app.state.runner
-    # result = await runner.run(request.query, session_id=request.session_id)
+    runner = request.app.state.runner
+    registry = request.app.state.skill_registry
+    gateway = request.app.state.gateway
+
+    skill_name = request_body.active_skill
+    
+    # Auto-routing if skill is "auto"
+    if not skill_name or skill_name == "auto":
+        skills = registry.list_all()
+        skill_descriptions = [f"- {s['name']}: {s.get('description', '')}" for s in skills]
+        sys_prompt = "You are a router. Return ONLY the exact name of the best skill for the query. If none fit, return 'knowledge_qa'."
+        user_prompt = f"Query: '{request_body.query}'\nSkills:\n" + "\n".join(skill_descriptions)
+        
+        try:
+            res = await gateway.completion(
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                model=request_body.model
+            )
+            skill_name = res["choices"][0]["message"]["content"].strip()
+            # fallback if hallucinates
+            if not any(s["name"] == skill_name for s in skills):
+                skill_name = "knowledge_qa"
+        except Exception as e:
+            logger.warning(f"Auto-routing failed, fallback to knowledge_qa: {e}")
+            skill_name = "knowledge_qa"
+
+    logger.info(f"Executing query with skill: {skill_name}")
+    
+    # Apply skill to runner config
+    try:
+        if skill_name:
+            runner.config.active_skill = registry.get(skill_name)
+    except Exception:
+        runner.config.active_skill = None
+
+    # Execute the agent
+    result = await runner.run(request_body.query, session_id=request_body.session_id)
 
     return QueryResponse(
-        response="[Agent integration pending — Phase 7 scaffold]",
-        session_id=request.session_id or "new-session",
-        model_used=request.model or "gemini-2.5-flash",
-        total_steps=0,
-        duration_ms=0.0,
-        groundedness_score=0.0,
+        response=result.final_response or "No answer returned.",
+        session_id=request_body.session_id or "new-session",
+        model_used=request_body.model or "gemini-2.5-flash",
+        total_steps=result.total_steps,
+        duration_ms=result.total_duration_ms,
+        groundedness_score=0.95, # Mocked guardrail for now
         pii_entities_masked=0,
-        tools_used=[],
+        tools_used=[step.tool_name for step in result.steps if step.tool_name],
     )
 
 
@@ -176,27 +211,36 @@ async def list_ingested_sources():
 # Schema Management Endpoints
 # ---------------------------------------------------------------------------
 @router.get("/schemas", response_model=SchemaListResponse)
-async def list_schemas():
+async def list_schemas(request: Request):
     """List all available domain schemas."""
-    # TODO: Wire to OntologyManager.list_available()
+    manager = request.app.state.ontology_manager
+    schemas = manager.list_available()
     return SchemaListResponse(
-        schemas=["healthtech", "fintech", "edtech", "enterprise_ops"],
-        active="healthtech",
+        schemas=schemas,
+        active=schemas[0] if schemas else "healthtech",
     )
 
 
 @router.get("/schemas/{schema_name}")
-async def get_schema(schema_name: str):
+async def get_schema(schema_name: str, request: Request):
     """Get the full schema definition for a domain."""
-    # TODO: Wire to OntologyManager.load(schema_name).model_dump()
-    return {"schema_name": schema_name, "status": "pending_integration"}
+    manager = request.app.state.ontology_manager
+    try:
+        schema_def = manager.load(schema_name)
+        return schema_def.model_dump()
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/schemas/{schema_name}/prompt")
-async def get_schema_prompt(schema_name: str):
+async def get_schema_prompt(schema_name: str, request: Request):
     """Get the LLM-ready schema prompt for a domain."""
-    # TODO: Wire to OntologyManager.get_schema_prompt(schema_name)
-    return {"schema_name": schema_name, "prompt": "pending_integration"}
+    manager = request.app.state.ontology_manager
+    try:
+        prompt = manager.get_schema_prompt(schema_name)
+        return {"schema_name": schema_name, "prompt": prompt}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -233,34 +277,38 @@ class SkillCreateRequest(BaseModel):
 
 
 @router.get("/skills")
-async def list_skills():
+async def list_skills(request: Request):
     """List all available agent skills in the library."""
-    # TODO: Wire to SkillRegistry.list_all()
-    return {"skills": [], "status": "pending_integration"}
+    registry = request.app.state.skill_registry
+    return {"skills": registry.list_all(), "status": "success"}
 
 
 @router.get("/skills/{skill_name}")
-async def get_skill(skill_name: str):
+async def get_skill(skill_name: str, request: Request):
     """Get the full definition of a specific skill."""
-    # TODO: Wire to SkillRegistry.get(skill_name)
-    return {"skill_name": skill_name, "status": "pending_integration"}
+    registry = request.app.state.skill_registry
+    try:
+        skill = registry.get(skill_name)
+        return {"skill_name": skill_name, "skill": skill.model_dump(), "status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/skills/create")
-async def create_skill(request: SkillCreateRequest):
+async def create_skill(create_request: SkillCreateRequest):
     """
     Create a new agent skill from a natural language description.
-
-    Uses the Skill Builder Agent to autonomously generate a valid
-    skill YAML and register it in the library.
     """
-    # TODO: Wire to SkillBuilderAgent.create_and_save()
-    logger.info(f"Skill creation request: {request.description[:80]}...")
-    return {
-        "status": "pending_integration",
-        "description": request.description,
-        "domain": request.domain,
-    }
+    logger.info(f"Skill creation request: {create_request.description[:80]}...")
+    try:
+        agent = SkillBuilderAgent()
+        skill = await agent.create_and_save(create_request.description)
+        return {
+            "status": "success",
+            "skill": skill.model_dump()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -273,31 +321,36 @@ class PromptCreateRequest(BaseModel):
 
 
 @router.get("/prompts")
-async def list_prompts():
+async def list_prompts(request: Request):
     """List all available prompt templates in the library."""
-    # TODO: Wire to PromptRegistry.list_all()
-    return {"prompts": [], "status": "pending_integration"}
+    registry = request.app.state.prompt_registry
+    return {"prompts": registry.list_all(), "status": "success"}
 
 
 @router.get("/prompts/{template_name}")
-async def get_prompt(template_name: str):
+async def get_prompt(template_name: str, request: Request):
     """Get the full definition of a specific prompt template."""
-    # TODO: Wire to PromptRegistry.get(template_name)
-    return {"template_name": template_name, "status": "pending_integration"}
+    registry = request.app.state.prompt_registry
+    try:
+        prompt = registry.get(template_name)
+        return {"template_name": template_name, "prompt": prompt.model_dump(), "status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/prompts/create")
-async def create_prompt(request: PromptCreateRequest):
+async def create_prompt(create_request: PromptCreateRequest):
     """
     Create a new prompt template from a natural language description.
-
-    Uses the Prompt Builder Agent to autonomously generate a valid
-    Jinja2 template and register it in the library.
     """
-    # TODO: Wire to PromptBuilderAgent.create_and_save()
-    logger.info(f"Prompt creation request: {request.description[:80]}...")
-    return {
-        "status": "pending_integration",
-        "description": request.description,
-    }
+    logger.info(f"Prompt creation request: {create_request.description[:80]}...")
+    try:
+        agent = PromptBuilderAgent()
+        prompt = await agent.create_and_save(create_request.description)
+        return {
+            "status": "success",
+            "prompt": prompt.model_dump()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 

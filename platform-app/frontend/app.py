@@ -23,7 +23,7 @@ APP_TITLE = "Cognitive Knowledge Platform"
 # ---------------------------------------------------------------------------
 # API Client Helpers
 # ---------------------------------------------------------------------------
-def api_query(query: str, session_id: str | None = None, schema: str = "healthtech") -> dict:
+def api_query(query: str, session_id: str | None = None, schema: str = "healthtech", active_skill: str = "auto") -> dict:
     """Send a query to the CKP agent API."""
     try:
         resp = requests.post(
@@ -32,6 +32,7 @@ def api_query(query: str, session_id: str | None = None, schema: str = "healthte
                 "query": query,
                 "session_id": session_id,
                 "schema_name": schema,
+                "active_skill": active_skill,
             },
             timeout=60,
         )
@@ -177,6 +178,18 @@ html, body, [class*="css"] {
     border-right: 1px solid rgba(255,255,255,0.05) !important;
 }
 
+/* Ensure the collapsed sidebar toggle button is always visible and clickable */
+[data-testid="collapsedControl"] {
+    display: block !important;
+    z-index: 999999 !important;
+    background: rgba(30, 33, 43, 0.8) !important;
+    border-radius: 50% !important;
+}
+[data-testid="collapsedControl"]:hover {
+    background: rgba(122,82,244, 0.5) !important;
+}
+
+
 /* Transform Sidebar Radio into a Premium Vertical Menu */
 [data-testid="stSidebar"] [data-testid="stRadio"] > div {
     gap: 8px;
@@ -298,6 +311,20 @@ if page == "💬 Chat":
     if "session_id" not in st.session_state:
         st.session_state.session_id = None
 
+    # Fetch available skills for the dropdown
+    skills_data = api_list_skills()
+    skill_options = ["auto"] + [s["name"] for s in skills_data]
+    
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        active_skill = st.selectbox(
+            "Agent Mode / Skill", 
+            options=skill_options, 
+            format_func=lambda x: "🤖 Auto-Select (Agentic)" if x == "auto" else f"⚡ {x}"
+        )
+    with col1:
+        st.caption("Select a specific skill to force the agent's behavior, or let it auto-select based on the query.")
+
     # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
@@ -320,6 +347,7 @@ if page == "💬 Chat":
                     prompt,
                     session_id=st.session_state.session_id,
                     schema=active_schema,
+                    active_skill=active_skill,
                 )
 
             response = result.get("response", result.get("error", "No response"))

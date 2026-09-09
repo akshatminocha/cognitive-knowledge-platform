@@ -20,6 +20,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from google.adk import Agent
+
 from agent_harness.context_engine import ContextEngine, CanonicalMessage, Role
 from agent_harness.memory import MemoryManager
 from agent_harness.reflection import ReflectionLoop
@@ -167,40 +169,45 @@ class AgentRunner:
                 logger.info(f"Retrieved {len(memories)} relevant memories")
 
         # 3-4. Agent execution loop
-        # NOTE: The actual ADK agent integration happens here.
-        # This is the integration point where google.adk.Agent is instantiated
-        # with MCP tools and the schema prompt. For now, we define the
-        # orchestration skeleton that wraps the ADK call.
-        step_index = 0
+        step_start = time.monotonic()
+        instruction = "You are a helpful knowledge assistant."
+        if skill:
+            instruction = skill.description
 
-        while step_index < effective_max_steps:
-            step_start = time.monotonic()
-            step_index += 1
-
-            # Placeholder for ADK agent step execution
-            # In production, this calls:
-            #   agent = google.adk.Agent(model=..., tools=[mcp_tools])
-            #   response = await agent.run(context_messages)
-            step = StepResult(
-                step_index=step_index,
-                action="response",
-                response_text=f"[ADK agent step {step_index} — pending integration]",
-                duration_ms=(time.monotonic() - step_start) * 1000,
+        try:
+            from google.adk.runners import InMemoryRunner
+            agent = Agent(
+                name="ckp_agent",
+                model="gemini-2.5-flash",
+                instruction=instruction,
             )
-            result.steps.append(step)
+            runner = InMemoryRunner(agent=agent)
+            events = await runner.run_debug(query, quiet=True)
+            
+            response_text = ""
+            if events and events[-1].message and events[-1].message.parts:
+                response_text = "".join([
+                    p.text for p in events[-1].message.parts if hasattr(p, "text") and p.text
+                ])
+            if not response_text:
+                response_text = "Sorry, I couldn't generate a response."
+                
+            error_msg = None
+        except Exception as e:
+            logger.error(f"Agent execution failed: {e}")
+            response_text = f"Agent execution failed: {e}"
+            error_msg = str(e)
 
-            # Check for infinite loops
-            if self._detect_infinite_loop(step):
-                logger.warning(f"Infinite loop detected at step {step_index}")
-                step.error = "Infinite loop detected — halting execution"
-                break
-
-            # If this step produced a final response, we're done
-            if step.action == "response" and step.response_text:
-                result.final_response = step.response_text
-                break
-
-        result.total_steps = step_index
+        step = StepResult(
+            step_index=1,
+            action="response",
+            response_text=response_text,
+            duration_ms=(time.monotonic() - step_start) * 1000,
+            error=error_msg
+        )
+        result.steps.append(step)
+        result.final_response = response_text
+        result.total_steps = 1
 
         # 5. Optional reflection
         if self.config.enable_reflection and result.final_response:
