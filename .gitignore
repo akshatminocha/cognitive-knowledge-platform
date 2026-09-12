@@ -116,3 +116,10 @@ qdrant_data/
 
 # Streamlit
 .streamlit/
+
+# Node.js / React
+node_modules/
+platform-app/frontend-react/dist/
+
+# Backend logs
+backend.log

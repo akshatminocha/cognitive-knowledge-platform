@@ -1,0 +1,150 @@
+.diagnostics-page { animation: fadeIn 0.3s ease; }
+
+/* Top metrics */
+.diag-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.diag-metric {
+  text-align: center;
+  padding: 24px 16px !important;
+  animation: fadeInUp 0.4s ease both;
+}
+.diag-metric:nth-child(2) { animation-delay: 0.05s; }
+.diag-metric:nth-child(3) { animation-delay: 0.1s; }
+.diag-metric:nth-child(4) { animation-delay: 0.15s; }
+.diag-metric:nth-child(5) { animation-delay: 0.2s; }
+.diag-metric-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.diag-metric-icon {
+  display: block;
+  font-size: 1.8rem;
+  margin-bottom: 8px;
+}
+.diag-metric-value {
+  display: block;
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+/* Section titles */
+.diag-section-title {
+  color: var(--text-primary);
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+/* Infrastructure */
+.diag-infra-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.diag-infra-card {
+  padding: 20px !important;
+  animation: fadeInUp 0.4s ease both;
+}
+.diag-infra-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.diag-infra-icon { font-size: 1.6rem; }
+.diag-infra-header h4 {
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+.diag-infra-desc {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.diag-infra-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diag-infra-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diag-infra-key {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.diag-infra-val {
+  color: var(--text-accent);
+  font-size: 0.75rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  background: rgba(0,0,0,0.2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+/* Schemas */
+.diag-schemas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.diag-schema-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px !important;
+  animation: fadeInUp 0.4s ease both;
+}
+.diag-schema-icon { font-size: 1.4rem; }
+.diag-schema-name {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Raw data */
+.diag-raw {
+  margin-top: 8px;
+}
+.diag-raw-toggle {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 12px 0;
+  list-style: none;
+  transition: color var(--transition-normal);
+}
+.diag-raw-toggle:hover { color: var(--text-primary); }
+.diag-raw-toggle::marker { content: ''; }
+.diag-raw-content {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  color: var(--text-secondary);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  margin-top: 8px;
+  animation: fadeIn 0.3s ease;
+}
