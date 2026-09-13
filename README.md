@@ -20,7 +20,8 @@ The v2 platform has been completely rewritten from a monolithic LangChain applic
 ### Platform Apps (`platform-app/`)
 
 - **Backend**: FastAPI orchestrator that wires all packages together, exposing REST endpoints for querying, data ingestion, and schema management.
-- **Frontend**: Streamlit UI for the chat interface, ingestion dashboard, and system diagnostics.
+- **Frontend (Streamlit)**: A Streamlit-based UI with glassmorphism design for the chat interface, ingestion dashboard, skills library, and system diagnostics.
+- **Frontend (React)**: A React + Vite SPA with a premium dark-mode glassmorphism UI, offering the same feature set as Streamlit with a richer, more interactive experience.
 - **Evaluation**: Golden Q&A benchmark suite for regression testing the agent's accuracy and groundedness.
 
 ## Tech Stack (100% Open Source)
@@ -28,14 +29,13 @@ The v2 platform has been completely rewritten from a monolithic LangChain applic
 - **Execution**: Python 3.13+, Google ADK v2.6+
 - **Data Fabric**: Neo4j (Graph), Qdrant (Vector), PostgreSQL (Tabular)
 - **LLM Support**: Gemini, OpenAI, Anthropic, Ollama
-- **APIs**: FastAPI, MCP, Streamlit
+- **APIs**: FastAPI, MCP, Streamlit, React + Vite
 
 ## Quick Start
 
 ### 1. Start Infrastructure
-Start the data fabric (Neo4j, Qdrant, PostgreSQL) using Docker Compose:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 2. Configure Environment
@@ -45,39 +45,30 @@ cp .env.example .env
 ```
 
 ### 3. Install the Platform
-
-**Option 1: Using `uv` (Recommended)**
-Because this repository is configured as a `uv.workspace`, you can install everything (core packages + platform apps) in a single command:
 ```bash
 uv sync
 ```
 
-**Option 2: Using standard `pip`**
+### 4. Run (One Command)
 ```bash
-# Install core packages
-pip install -e packages/ai-gateway
-pip install -e packages/guardrails
-pip install -e packages/ontology-engine
-pip install -e packages/mcp-servers
-pip install -e packages/agent-harness
+# Streamlit frontend (default)
+./run.sh
 
-# Install platform apps
-pip install -e platform-app
+# React frontend
+./run.sh --react
+
+# Both frontends
+./run.sh --all
 ```
 
-### 4. Run the Apps
-**Start Backend (FastAPI)**:
+### 5. Stop Everything
 ```bash
-uv run uvicorn platform-app.backend.main:app --reload --port 8000
+./scripts/stop.sh
 ```
 
-**Start Frontend (Streamlit)**:
-```bash
-uv run streamlit run platform-app/frontend/app.py
-```
+See [SETUP.md](SETUP.md) for detailed manual setup instructions and service URLs.
 
 ## Running Evaluations
-To test the agent's performance against the golden Q&A dataset:
 ```bash
 uv run python -m evaluation.run_benchmarks --model gemini-2.5-flash
 ```

@@ -2,7 +2,7 @@
 # Cognitive Knowledge Platform — Makefile
 # =============================================================================
 
-.PHONY: setup dev test test-gateway test-guardrails test-ontology test-mcp test-harness test-integration eval lint clean infra-up infra-down
+.PHONY: setup start stop dev frontend frontend-react test test-gateway test-guardrails test-ontology test-mcp test-harness test-integration eval lint clean infra-up infra-down
 
 # --- Setup ---
 setup:
@@ -12,6 +12,8 @@ setup:
 	uv sync
 	@echo "Copying .env.example to .env (if not exists)..."
 	@test -f .env || cp .env.example .env
+	@echo "Installing React frontend dependencies..."
+	cd platform-app/frontend-react && npm install --silent
 	@echo "Setup complete."
 
 # --- Infrastructure ---
@@ -23,6 +25,13 @@ infra-up:
 infra-down:
 	docker compose down
 
+# --- Run (One Command) ---
+start:
+	./run.sh
+
+stop:
+	./scripts/stop.sh
+
 # --- Development ---
 dev:
 	@echo "Starting FastAPI backend..."
@@ -31,6 +40,10 @@ dev:
 frontend:
 	@echo "Starting Streamlit frontend..."
 	uv run streamlit run platform-app/frontend/app.py --server.port 8501
+
+frontend-react:
+	@echo "Starting React frontend..."
+	cd platform-app/frontend-react && npm run dev
 
 # --- Testing ---
 test:
@@ -58,6 +71,10 @@ test-integration:
 eval:
 	uv run python evaluation/run_benchmarks.py --schema healthtech --model gemini-2.5-flash
 
+# --- E2E Validation ---
+validate:
+	bash scripts/validate_e2e.sh
+
 # --- Linting ---
 lint:
 	uv run ruff check .
@@ -72,3 +89,4 @@ clean:
 	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
 	rm -rf .ruff_cache dist build
+	rm -rf platform-app/frontend-react/dist

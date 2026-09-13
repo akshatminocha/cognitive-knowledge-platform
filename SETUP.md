@@ -1,90 +1,143 @@
 # CKP v2 — Local Setup Guide
 
-This guide walks you through configuring, installing, and running the Cognitive Knowledge Platform (v2) locally. The v2 architecture is highly modular and utilizes a `uv` workspace.
+This guide walks you through configuring, installing, and running the Cognitive Knowledge Platform (v2) locally.
 
-## 1. Prerequisites
+## Prerequisites
 - **Python 3.13+**
-- **uv** (Package manager. Install via `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- **Docker Desktop** (Required for the data fabric)
+- **Node.js 18+** and **npm** (for the React frontend)
+- **uv** (Python package manager. Install: `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- **Docker Desktop** (for Neo4j, Qdrant, PostgreSQL databases)
 
-## 2. Environment Configuration
-Copy the environment template and add your API keys:
+---
+
+## Quick Start (One Command)
+
+### Start Everything
+```bash
+# Default: Docker + Backend + Streamlit frontend
+./run.sh
+
+# Alternative: Docker + Backend + React frontend
+./run.sh --react
+
+# Both frontends simultaneously
+./run.sh --all
+```
+
+### Stop Everything
+```bash
+./scripts/stop.sh
+```
+
+---
+
+## Manual Setup (Step by Step)
+
+### 1. Environment Configuration
 ```bash
 cp .env.example .env
 # Edit .env and set GOOGLE_API_KEY for the Gemini Agent
 ```
 
-## 3. Start Infrastructure
-Start the data fabric (Neo4j, Qdrant, PostgreSQL) in the background:
+### 2. Start Databases
+Start the data fabric (Neo4j, Qdrant, PostgreSQL) via Docker:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
-*Wait ~10 seconds for the databases to initialize and pass their health checks.*
+Wait ~10 seconds for databases to initialize and pass their health checks.
 
-## 4. Install Packages (via `uv`)
-Since CKP v2 is configured as a `uv.workspace` in the root `pyproject.toml`, installation is a single command. It will automatically resolve all internal dependencies between packages (`ckp-ai-gateway`, `ckp-agent-harness`, `ckp-platform-app`, etc.) and install them in editable mode.
-
+### 3. Install Python Packages
+CKP v2 is configured as a `uv.workspace`. A single command installs all internal packages (`ckp-ai-gateway`, `ckp-agent-harness`, `ckp-platform-app`, etc.) in editable mode:
 ```bash
 uv sync
 ```
 
-**Post-Install Step**: The Guardrails engine uses Presidio to detect PII, which requires downloading a SpaCy NLP model. You can choose the model size based on your machine's resources:
-
-- **Large** (Recommended, ~1GB RAM): `uv run spacy download en_core_web_lg`
-- **Medium** (~100MB RAM, faster startup): `uv run spacy download en_core_web_md`
-- **Small** (~30MB RAM, lightest): `uv run spacy download en_core_web_sm`
-
+**Post-install (optional):** Download a SpaCy NLP model for PII detection:
 ```bash
-# Example: Download the large model
 uv run spacy download en_core_web_lg
 ```
-*(Note: If you use the medium or small model, you will need to update the model name in your guardrails config accordingly).*
 
-## 5. Generate Synthetic Data
-Before starting the application, generate some demo data for the Neo4j and Qdrant databases.
+### 4. Start the Backend (FastAPI)
 ```bash
-uv run python -m platform-app.backend.generation.synthetic_data
-```
-*This outputs CSV files to `platform-app/data/synthetic/`.*
-
-## 6. Run the Platform
-
-**Start the Backend (FastAPI)**:
-```bash
-uv run uvicorn platform-app.backend.main:app --reload --port 8000
+uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Start the Frontend (Streamlit)** (in a new terminal):
+### 5. Start a Frontend
+
+**Option A — Streamlit** (in a new terminal):
 ```bash
-uv run streamlit run platform-app/frontend/app.py
+uv run streamlit run platform-app/frontend/app.py --server.port 8501
 ```
 
-## 7. Validate Functionality
-You can manually test the APIs to ensure everything is connected:
-
+**Option B — React** (in a new terminal):
 ```bash
-# Check health
+cd platform-app/frontend-react
+npm install
+npm run dev
+```
+
+---
+
+## Service URLs
+
+| Service           | URL                                    | Notes                     |
+|-------------------|----------------------------------------|---------------------------|
+| **FastAPI Backend**   | http://localhost:8000              | REST API + `/health`      |
+| **API Docs (Swagger)**| http://localhost:8000/docs         | Interactive API explorer  |
+| **Streamlit Frontend**| http://localhost:8501              | Python-based UI           |
+| **React Frontend**    | http://localhost:5173              | Vite dev server           |
+| **Neo4j Browser**     | http://localhost:7474              | Graph DB UI               |
+| **Qdrant Dashboard**  | http://localhost:6333/dashboard    | Vector DB dashboard       |
+| **PostgreSQL**        | `postgresql://ckp_user:changeme@localhost:5432/ckp_db` | Tabular DB |
+
+---
+
+## Manual Stop (Step by Step)
+
+### Stop Frontend & Backend
+Press `Ctrl+C` in each terminal running the frontend/backend.
+
+If running in the background:
+```bash
+pkill -f "uvicorn backend.main:app"    # Stop backend
+pkill -f "streamlit run"                # Stop Streamlit
+pkill -f "vite"                         # Stop React dev server
+```
+
+### Stop Databases
+```bash
+docker compose down
+```
+
+> **⚠️ Caution:** To also wipe all database data: `docker compose down -v`
+
+---
+
+## Validate Functionality
+
+### Quick API test
+```bash
+# Health check
 curl http://localhost:8000/health
 
-# Run an agent query
+# Agent query
 curl -X POST http://localhost:8000/api/v2/query \
   -H "Content-Type: application/json" \
-  -d '{"query": "What medications is patient PAT-001 taking?", "schema_name": "healthtech"}'
+  -d '{"query": "What can you help me with?", "schema_name": "healthtech"}'
 ```
 
-## 8. Run the Evaluation Suite (Optional)
-To test the agent's performance against the golden benchmark dataset:
+### Full E2E Validation
 ```bash
-# Offline mode (validates the pipeline, no LLM calls made)
+bash scripts/validate_e2e.sh
+```
+
+---
+
+## Run Evaluations (Optional)
+```bash
+# Offline mode (validates pipeline, no LLM calls)
 uv run python -m evaluation.run_benchmarks --offline
 
-# Full benchmark mode (makes live LLM calls)
+# Full benchmark (makes live LLM calls)
 uv run python -m evaluation.run_benchmarks --model gemini-2.5-flash
-```
-
-## 9. Teardown
-To shut everything down:
-```bash
-# Stop backend and frontend with Ctrl+C in their respective terminals
-docker-compose down
 ```
