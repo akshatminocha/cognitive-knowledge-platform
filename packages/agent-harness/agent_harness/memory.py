@@ -15,7 +15,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +66,13 @@ class MemoryManager:
         self,
         max_short_term: int = 50,
         long_term_collection: str = "agent_memory",
+        qdrant_client: Any = None,
+        embedding_fn: Optional[Callable] = None,
     ) -> None:
         self.max_short_term = max_short_term
         self.long_term_collection = long_term_collection
+        self.qdrant_client = qdrant_client
+        self.embedding_fn = embedding_fn
 
         # Short-term: in-memory buffer
         self._short_term: list[MemoryEntry] = []
@@ -127,7 +131,6 @@ class MemoryManager:
             results.extend(st_results)
 
         # Long-term recall: semantic search via Qdrant
-        # NOTE: Integration point — calls Retrieval MCP server
         if include_long_term:
             lt_results = await self._recall_long_term(query, limit)
             results.extend(lt_results)
@@ -170,23 +173,90 @@ class MemoryManager:
         """
         Semantic recall from long-term vector store.
 
-        NOTE: This is the integration point where we call the Retrieval MCP
-        server's semantic_search tool with an embedding of the query.
-        For now, returns an empty list — wired during platform integration.
+        Embeds the query and searches Qdrant for similar past memories.
+        Gracefully falls back to empty list if no Qdrant client or embedding
+        function is configured.
         """
-        # TODO: Embed query → call retrieval_server.semantic_search()
-        # → convert results to MemoryEntry objects
-        return []
+        if not self.qdrant_client or not self.embedding_fn:
+            return []
+
+        try:
+            query_vector = await self.embedding_fn(query)
+
+            results = await self.qdrant_client.search(
+                collection_name=self.long_term_collection,
+                query_vector=query_vector,
+                limit=limit,
+            )
+
+            memories = []
+            for hit in results:
+                payload = hit.payload or {}
+                memories.append(MemoryEntry(
+                    memory_id=str(hit.id),
+                    content=payload.get("content", ""),
+                    query=payload.get("query", ""),
+                    session_id=payload.get("session_id"),
+                    timestamp=payload.get("timestamp", 0.0),
+                    relevance_score=hit.score,
+                    memory_type="long_term",
+                    metadata={k: v for k, v in payload.items()
+                              if k not in ("content", "query", "session_id", "timestamp")},
+                ))
+            return memories
+
+        except Exception as e:
+            logger.warning(f"Long-term recall failed (falling back to empty): {e}")
+            return []
 
     async def _promote_to_long_term(self, entry: MemoryEntry) -> None:
         """
         Promote a short-term memory to long-term storage.
 
         Embeds the content and upserts into the Qdrant collection.
+        Silently skips if no Qdrant client or embedding function is configured.
         """
         entry.memory_type = "long_term"
-        # TODO: Embed content → call retrieval_server.upsert_chunks()
-        logger.debug(f"Promoted memory {entry.memory_id} to long-term storage")
+
+        if not self.qdrant_client or not self.embedding_fn:
+            logger.debug(f"Skipped long-term promotion for {entry.memory_id} (no Qdrant/embedding)")
+            return
+
+        try:
+            from qdrant_client.models import PointStruct, VectorParams, Distance
+
+            vector = await self.embedding_fn(entry.content)
+
+            # Ensure collection exists
+            collections = await self.qdrant_client.get_collections()
+            existing = [c.name for c in collections.collections]
+            if self.long_term_collection not in existing:
+                await self.qdrant_client.create_collection(
+                    collection_name=self.long_term_collection,
+                    vectors_config=VectorParams(
+                        size=len(vector),
+                        distance=Distance.COSINE,
+                    ),
+                )
+
+            point = PointStruct(
+                id=entry.memory_id,
+                vector=vector,
+                payload={
+                    "content": entry.content,
+                    "query": entry.query,
+                    "session_id": entry.session_id,
+                    "timestamp": entry.timestamp,
+                },
+            )
+            await self.qdrant_client.upsert(
+                collection_name=self.long_term_collection,
+                points=[point],
+            )
+            logger.debug(f"Promoted memory {entry.memory_id} to long-term storage")
+
+        except Exception as e:
+            logger.warning(f"Long-term promotion failed (non-fatal): {e}")
 
     def get_short_term_buffer(self) -> list[MemoryEntry]:
         """Return the current short-term memory buffer."""
@@ -203,4 +273,5 @@ class MemoryManager:
             "short_term_count": len(self._short_term),
             "short_term_capacity": self.max_short_term,
             "long_term_collection": self.long_term_collection,
+            "long_term_enabled": self.qdrant_client is not None,
         }

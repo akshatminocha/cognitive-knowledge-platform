@@ -172,7 +172,7 @@ class DataProtector:
         if not self.config.enabled:
             return text, token_map or TokenMap()
 
-        tmap = token_map or TokenMap(format=self.config.mask_format)
+        tmap = token_map or TokenMap(_format=self.config.mask_format)
 
         if PRESIDIO_AVAILABLE and self._analyzer is not None:
             return self._mask_with_presidio(text, tmap)
