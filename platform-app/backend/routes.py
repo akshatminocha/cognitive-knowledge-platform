@@ -148,16 +148,17 @@ async def query_agent(request_body: QueryRequest, request: Request):
 
 
 @router.get("/sessions")
-async def list_sessions():
+async def list_sessions(request: Request):
     """List all active conversation sessions."""
-    # TODO: Wire to ContextEngine.list_sessions()
-    return {"sessions": []}
+    ctx = request.app.state.context_engine
+    return {"sessions": ctx.list_sessions()}
 
 
 @router.delete("/sessions/{session_id}")
-async def clear_session(session_id: str):
+async def clear_session(session_id: str, request: Request):
     """Clear a specific conversation session."""
-    # TODO: Wire to ContextEngine.clear_session()
+    ctx = request.app.state.context_engine
+    ctx.clear_session(session_id)
     return {"status": "cleared", "session_id": session_id}
 
 
@@ -166,6 +167,7 @@ async def clear_session(session_id: str):
 # ---------------------------------------------------------------------------
 @router.post("/ingest", response_model=IngestionResponse)
 async def ingest_file(
+    request: Request,
     file: UploadFile = File(...),
     schema_name: str = "healthtech",
     chunk_size: int = 512,
@@ -187,24 +189,81 @@ async def ingest_file(
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
-    # TODO: Wire to ingestion pipeline
     logger.info(f"Ingestion request: {file.filename} (schema: {schema_name})")
 
-    return IngestionResponse(
+    # Build a pipeline with the app's shared dependencies
+    from backend.ingestion.pipeline import IngestionPipeline
+
+    pipeline = IngestionPipeline(
+        schema_name=schema_name,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        gateway=getattr(request.app.state, "gateway", None),
+        ontology_manager=getattr(request.app.state, "ontology_manager", None),
+        qdrant_client=getattr(request.app.state, "qdrant_client", None),
+        neo4j_driver=getattr(request.app.state, "neo4j_driver", None),
+    )
+
+    # Read file bytes and ingest
+    content = await file.read()
+    result = await pipeline.ingest_bytes(
+        content=content,
         filename=file.filename,
-        status="pending_integration",
-        chunks_created=0,
-        entities_extracted=0,
-        relationships_extracted=0,
-        duration_ms=0.0,
+    )
+
+    return IngestionResponse(
+        filename=result.filename,
+        status=result.status,
+        chunks_created=result.chunks_created,
+        entities_extracted=result.entities_extracted,
+        relationships_extracted=result.relationships_extracted,
+        duration_ms=result.duration_ms,
     )
 
 
 @router.get("/ingest/sources")
-async def list_ingested_sources():
+async def list_ingested_sources(request: Request):
     """List all ingested data sources."""
-    # TODO: Query Qdrant collections + Neo4j labels + PostgreSQL tables
-    return {"sources": []}
+    sources = []
+
+    # Query Qdrant for vector collection stats
+    qdrant = getattr(request.app.state, "qdrant_client", None)
+    if qdrant:
+        try:
+            collections = await qdrant.get_collections()
+            for col in collections.collections:
+                info = await qdrant.get_collection(col.name)
+                sources.append({
+                    "type": "vector",
+                    "store": "qdrant",
+                    "name": col.name,
+                    "points_count": info.points_count,
+                    "vectors_count": info.vectors_count,
+                })
+        except Exception as e:
+            logger.warning(f"Failed to query Qdrant sources: {e}")
+
+    # Query Neo4j for graph node labels and counts
+    neo4j = getattr(request.app.state, "neo4j_driver", None)
+    if neo4j:
+        try:
+            async with neo4j.session() as session:
+                result = await session.run(
+                    "CALL db.labels() YIELD label "
+                    "RETURN label, count { MATCH (n) WHERE label IN labels(n) RETURN count(n) } AS count"
+                )
+                records = await result.data()
+                for record in records:
+                    sources.append({
+                        "type": "graph",
+                        "store": "neo4j",
+                        "name": record.get("label", "unknown"),
+                        "node_count": record.get("count", 0),
+                    })
+        except Exception as e:
+            logger.warning(f"Failed to query Neo4j sources: {e}")
+
+    return {"sources": sources}
 
 
 # ---------------------------------------------------------------------------
@@ -247,23 +306,28 @@ async def get_schema_prompt(schema_name: str, request: Request):
 # Diagnostics Endpoints
 # ---------------------------------------------------------------------------
 @router.get("/diagnostics", response_model=DiagnosticsResponse)
-async def get_diagnostics():
+async def get_diagnostics(request: Request):
     """Get system diagnostics and health info."""
-    # TODO: Wire to GuardrailEngine.get_diagnostics(), Gateway stats, Memory stats
+    guardrail_engine = getattr(request.app.state, "guardrails", None)
+    gateway_client = getattr(request.app.state, "gateway", None)
+    memory_manager = getattr(request.app.state, "memory", None)
+
     return DiagnosticsResponse(
         platform_version="2.0.0",
         active_schema="healthtech",
-        guardrails={},
-        gateway={},
-        memory={},
+        guardrails=guardrail_engine.config.model_dump() if guardrail_engine else {},
+        gateway=gateway_client.config.model_dump() if gateway_client else {},
+        memory=memory_manager.stats() if memory_manager else {},
     )
 
 
 @router.get("/diagnostics/guardrails")
-async def get_guardrail_diagnostics():
+async def get_guardrail_diagnostics(request: Request):
     """Get detailed guardrail configuration and stats."""
-    # TODO: Wire to GuardrailEngine.get_diagnostics()
-    return {"status": "pending_integration"}
+    guardrail_engine = getattr(request.app.state, "guardrails", None)
+    if guardrail_engine:
+        return guardrail_engine.config.model_dump()
+    return {"status": "no_guardrail_engine"}
 
 
 # ---------------------------------------------------------------------------
