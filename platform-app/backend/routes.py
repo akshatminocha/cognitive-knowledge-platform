@@ -18,6 +18,10 @@ from pydantic import BaseModel, Field
 
 from agent_harness.skills.skill_builder_agent import SkillBuilderAgent
 from agent_harness.prompts.prompt_builder_agent import PromptBuilderAgent
+from agent_harness.uka_export import UKAExporter
+from fastapi.responses import FileResponse
+import tempfile
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +164,23 @@ async def clear_session(session_id: str, request: Request):
     ctx = request.app.state.context_engine
     ctx.clear_session(session_id)
     return {"status": "cleared", "session_id": session_id}
+
+
+@router.get("/sessions/{session_id}/export")
+async def export_session(session_id: str, request: Request, format: str = "zip"):
+    """Export a session as a Universal Knowledge Artifact (UKA)."""
+    ctx = request.app.state.context_engine
+    exporter = UKAExporter(ctx)
+    
+    tmp_dir = Path(tempfile.mkdtemp())
+    if format == "json":
+        out_path = tmp_dir / f"uka_{session_id}.json"
+        exporter.export_to_json(session_id, out_path)
+        return FileResponse(out_path, filename=f"{session_id}.json")
+    else:
+        out_path = tmp_dir / f"uka_{session_id}.uka"
+        exporter.export_to_bundle(session_id, out_path)
+        return FileResponse(out_path, filename=f"{session_id}.uka")
 
 
 # ---------------------------------------------------------------------------
