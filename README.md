@@ -26,7 +26,17 @@ The v2 platform has been completely rewritten from a monolithic LangChain applic
 
 ## The Universal Knowledge Artifact (.uka)
 
-The platform pioneers the **Universal Knowledge Artifact (UKA)** format. Instead of your chat history and memory being locked into OpenAI's threads or Anthropic's context windows, the Agent Harness exports your entire session into a vendor-neutral `.uka` zip bundle. This allows you to hot-swap LLMs (e.g., from GPT-4o to Gemini 2.5) mid-conversation without losing any graph context or semantic memory.
+The platform pioneers the **Universal Knowledge Artifact (UKA)** format. 
+
+### Why did we build it?
+In the current AI landscape, your conversational memory and semantic context are heavily locked into proprietary vendor ecosystems (e.g., OpenAI's Threads API, Anthropic's context windows, or proprietary enterprise SaaS databases). If you want to move your AI application to a new model or a new platform, you lose all the context and have to start from scratch.
+
+### What is it?
+Just as `.pdf` standardized document sharing across operating systems, **`.uka` standardizes the sharing of Artificial Intelligence context.** 
+
+Instead of your knowledge being trapped in a specific vendor's API, the Agent Harness exports your entire session into a vendor-neutral `.uka` zip bundle. This portable bundle contains your chat history, vector embeddings, graph relationships, and dynamic schemas. 
+
+**The Result:** You can export a `.uka` bundle from this platform and drop it into any other UKA-compliant system, mobile app, or internal tool, and the new AI will instantly inherit your exact graph context, memory, and semantic knowledge. It enables zero-lock-in hot-swapping of LLMs (e.g., GPT-4o to Gemini 2.5) even mid-conversation.
 
 ## Tech Stack (100% Open Source)
 
