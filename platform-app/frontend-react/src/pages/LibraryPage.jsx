@@ -1,19 +1,24 @@
 import { useState, useEffect } from 'react';
-import { getSkills, getPrompts } from '../api/client';
+import { getSkills, getPrompts, getIngestedSources } from '../api/client';
 import './LibraryPage.css';
 
 export default function LibraryPage() {
   const [tab, setTab] = useState('skills');
   const [skills, setSkills] = useState([]);
   const [prompts, setPrompts] = useState([]);
+  const [sources, setSources] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
 
   useEffect(() => {
     getSkills().then(setSkills);
     getPrompts().then(setPrompts);
+    getIngestedSources().then(setSources);
   }, []);
 
-  const items = tab === 'skills' ? skills : prompts;
+  let items = [];
+  if (tab === 'skills') items = skills;
+  if (tab === 'prompts') items = prompts;
+  if (tab === 'sources') items = sources;
 
   return (
     <div className="library-page">
@@ -29,13 +34,16 @@ export default function LibraryPage() {
         <button className={`library-tab ${tab === 'prompts' ? 'active' : ''}`} onClick={() => { setTab('prompts'); setSelectedItem(null); }}>
           📝 Prompts <span className="tab-count">{prompts.length}</span>
         </button>
+        <button className={`library-tab ${tab === 'sources' ? 'active' : ''}`} onClick={() => { setTab('sources'); setSelectedItem(null); }}>
+          📚 Sources <span className="tab-count">{sources.length}</span>
+        </button>
       </div>
 
       {items.length === 0 && (
         <div className="library-empty glass-card">
-          <div className="library-empty-icon">{tab === 'skills' ? '🛠️' : '📝'}</div>
+          <div className="library-empty-icon">{tab === 'skills' ? '🛠️' : tab === 'prompts' ? '📝' : '📚'}</div>
           <h3>No {tab} found</h3>
-          <p>Create your first {tab === 'skills' ? 'skill' : 'prompt template'} to get started.</p>
+          <p>Create your first {tab === 'skills' ? 'skill' : tab === 'prompts' ? 'prompt template' : 'data source'} to get started.</p>
         </div>
       )}
 
@@ -50,14 +58,17 @@ export default function LibraryPage() {
             <div className="library-card-header">
               <h4>{item.name}</h4>
               {item.domain && <span className="tag">{item.domain}</span>}
+              {item.store && <span className="tag">{item.store}</span>}
             </div>
             <p className="library-card-desc">
-              {(item.description || '').slice(0, 120)}{(item.description || '').length > 120 ? '...' : ''}
+              {(item.description || item.type || '').slice(0, 120)}{(item.description || '').length > 120 ? '...' : ''}
             </p>
             <div className="library-card-footer">
               {item.tools && <span>🔧 {item.tools.length} tools</span>}
               {item.variables && <span>📊 {item.variables.length} vars</span>}
               {item.version && <span>v{item.version}</span>}
+              {item.points_count !== undefined && <span>🔮 {item.points_count} points</span>}
+              {item.node_count !== undefined && <span>🕸️ {item.node_count} nodes</span>}
               {item.tags && item.tags.map((t, j) => <span key={j} className="tag">{t}</span>)}
             </div>
 

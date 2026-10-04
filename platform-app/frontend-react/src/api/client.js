@@ -9,10 +9,10 @@ async function fetchJSON(url, options = {}) {
   return res.json();
 }
 
-export async function queryAgent(query, sessionId = null, schema = 'healthtech', activeSkill = 'auto') {
+export async function queryAgent(query, sessionId = null, schema = 'healthtech', activeSkill = 'auto', model = 'gemini-2.5-flash') {
   return fetchJSON(`${API_BASE}/query`, {
     method: 'POST',
-    body: JSON.stringify({ query, session_id: sessionId, schema_name: schema, active_skill: activeSkill }),
+    body: JSON.stringify({ query, session_id: sessionId, schema_name: schema, active_skill: activeSkill, model }),
   });
 }
 
@@ -62,3 +62,27 @@ export async function createPrompt(description) {
     body: JSON.stringify({ description }),
   });
 }
+
+export async function listSessions() {
+  try {
+    const data = await fetchJSON(`${API_BASE}/sessions`);
+    return data.sessions || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function exportUKA(sessionId) {
+  // Download the ZIP file directly
+  window.open(`${API_BASE}/sessions/${sessionId}/export?format=zip`, '_blank');
+}
+
+export async function getIngestedSources() {
+  try {
+    const data = await fetchJSON(`${API_BASE}/ingest/sources`);
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
