@@ -3,7 +3,7 @@ import requests
 import os
 
 # Configuration
-BACKEND_URL = "http://localhost:8000/api/v1"
+BACKEND_URL = "http://localhost:8000/api/v2"
 
 st.set_page_config(page_title="Universal Knowledge Platform", layout="wide")
 
@@ -20,19 +20,13 @@ with st.sidebar:
             with st.spinner("Uploading..."):
                 files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
                 try:
-                    # Upload
-                    upload_res = requests.post(f"{BACKEND_URL}/upload", files=files)
-                    if upload_res.status_code == 200:
-                        st.success("File uploaded successfully!")
-                        # Trigger Ingestion
-                        with st.spinner("Processing & Ingesting..."):
-                            ingest_res = requests.post(f"{BACKEND_URL}/ingest")
-                            if ingest_res.status_code == 200:
-                                st.success("Ingestion complete!")
-                            else:
-                                st.error(f"Ingestion failed: {ingest_res.text}")
+                    # Upload & Ingest in a single v2 call
+                    ingest_res = requests.post(f"{BACKEND_URL}/ingest", files=files, data={"schema_name": "healthtech", "chunk_size": 512, "chunk_overlap": 64})
+                    if ingest_res.status_code == 200:
+                        st.success("File uploaded and ingested successfully!")
+                        st.json(ingest_res.json())
                     else:
-                        st.error(f"Upload failed: {upload_res.text}")
+                        st.error(f"Ingestion failed: {ingest_res.text}")
                 except Exception as e:
                     st.error(f"Connection error: {e}")
 
@@ -73,11 +67,11 @@ if prompt := st.chat_input("Ask a question about your knowledge base..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                response = requests.post(f"{BACKEND_URL}/chat", json={"query": prompt})
+                response = requests.post(f"{BACKEND_URL}/query", json={"query": prompt, "schema_name": "healthtech", "model": "gemini-2.5-flash", "active_skill": "auto"})
                 if response.status_code == 200:
                     data = response.json()
                     answer = data.get("response", "No answer.")
-                    tools = data.get("tool_usage", [])
+                    tools = data.get("tools_used", [])
                     
                     st.markdown(answer)
                     if tools:
