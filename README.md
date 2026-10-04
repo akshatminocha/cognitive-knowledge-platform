@@ -1,6 +1,6 @@
 # Cognitive Knowledge Platform (v2)
 
-A modular, agentic AI platform for knowledge graph construction, semantic retrieval, and intelligent querying across industry domains.
+An advanced cognition system that securely transforms multimodal data into an interactive knowledge base. Autonomous multi-agent smart routing navigates dual graph and vector architectures powered by a dynamic Ontology Engine, while an AI Gateway enforces governance guardrails, manages AI economics, and ensures zero LLM lock-in experience.
 
 ## Architecture & Repositories
 
@@ -8,14 +8,14 @@ The v2 platform has been completely rewritten from a monolithic LangChain applic
 
 ### Core Packages (`packages/`)
 
-- **[AI Gateway](packages/ai-gateway/)**: A multi-model router with semantic caching and rate limiting. Abstracts away LLM provider differences and provides fallbacks.
+- **[AI Gateway](packages/ai-gateway/)**: A cost-aware multi-model router handling AI economics, semantic caching, and rate limiting. Abstracts away LLM provider differences for seamless mid-session model swapping.
 - **[Guardrails Engine](packages/guardrails/)**: The governance layer. Enforces PII/PHI data masking, Cypher/SQL AST validation (read-only execution), prompt injection detection, and groundedness checks.
 - **[Ontology Engine](packages/ontology-engine/)**: Schema-driven dynamic ontology manager. Defines how unstructured text is mapped into Neo4j graph nodes for different domains (Healthtech, Fintech, etc.).
 - **[MCP Servers](packages/mcp-servers/)**: Standardized data access tool servers using the Model Context Protocol:
   - `GraphMCP` (Neo4j)
   - `RetrievalMCP` (Qdrant)
   - `TabularMCP` (PostgreSQL)
-- **[Agent Harness](packages/agent-harness/)**: The cognitive runtime. Wraps the Google ADK with step budgets, a model-agnostic canonical session store (context engine), self-reflection loops, and long/short-term semantic memory.
+- **[Agent Harness](packages/agent-harness/)**: The cognitive runtime. Features step budgets, self-reflection loops, long/short-term semantic memory, and the **Universal Knowledge Artifact (UKA)** exporter—packaging your session history into a `.uka` bundle for zero-lock-in context portability.
 
 ### Platform Apps (`platform-app/`)
 
@@ -23,6 +23,10 @@ The v2 platform has been completely rewritten from a monolithic LangChain applic
 - **Frontend (Streamlit)**: A Streamlit-based UI with glassmorphism design for the chat interface, ingestion dashboard, skills library, and system diagnostics.
 - **Frontend (React)**: A React + Vite SPA with a premium dark-mode glassmorphism UI, offering the same feature set as Streamlit with a richer, more interactive experience.
 - **Evaluation**: Golden Q&A benchmark suite for regression testing the agent's accuracy and groundedness.
+
+## The Universal Knowledge Artifact (.uka)
+
+The platform pioneers the **Universal Knowledge Artifact (UKA)** format. Instead of your chat history and memory being locked into OpenAI's threads or Anthropic's context windows, the Agent Harness exports your entire session into a vendor-neutral `.uka` zip bundle. This allows you to hot-swap LLMs (e.g., from GPT-4o to Gemini 2.5) mid-conversation without losing any graph context or semantic memory.
 
 ## Tech Stack (100% Open Source)
 
