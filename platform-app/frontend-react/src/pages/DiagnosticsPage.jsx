@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Server, Package, Wrench, FileText, ClipboardList, Database, Network, Share2, Globe, Plug, SearchCode } from 'lucide-react';
 import { getHealth, getDiagnostics, getSchemas, getSkills, getPrompts } from '../api/client';
 import './DiagnosticsPage.css';
 
@@ -20,12 +21,10 @@ export default function DiagnosticsPage() {
   const isHealthy = health.status === 'healthy';
 
   const infra = [
-    { name: 'Neo4j', desc: 'Graph Database', icon: '🕸️', ui: 'http://localhost:7474', conn: 'bolt://localhost:7687' },
-    { name: 'Qdrant', desc: 'Vector Store', icon: '🔮', ui: 'http://localhost:6333/dashboard', conn: 'http://localhost:6333' },
-    { name: 'PostgreSQL', desc: 'Tabular Store', icon: '🗃️', ui: '—', conn: 'postgresql://localhost:5432' },
+    { name: 'Neo4j', desc: 'Graph Database', icon: Network, ui: 'http://localhost:7474', conn: 'bolt://localhost:7687' },
+    { name: 'Qdrant', desc: 'Vector Store', icon: Database, ui: 'http://localhost:6333/dashboard', conn: 'http://localhost:6333' },
+    { name: 'PostgreSQL', desc: 'Tabular Store', icon: Server, ui: '—', conn: 'postgresql://localhost:5432' },
   ];
-
-  const schemaIcons = { healthtech: '💊', fintech: '💰', edtech: '🎓', enterprise_ops: '🏢' };
 
   return (
     <div className="diagnostics-page">
@@ -38,38 +37,40 @@ export default function DiagnosticsPage() {
       <div className="diag-metrics">
         <div className="diag-metric glass-card">
           <span className="diag-metric-label">Status</span>
-          <span className="diag-metric-icon">{isHealthy ? '🟢' : '🔴'}</span>
+          <span className="diag-metric-icon">
+            <div className={`status-indicator ${isHealthy ? 'bg-success' : 'bg-error'}`}></div>
+          </span>
           <span className="diag-metric-value">{isHealthy ? 'Healthy' : 'Down'}</span>
         </div>
         <div className="diag-metric glass-card">
           <span className="diag-metric-label">Version</span>
-          <span className="diag-metric-icon">📦</span>
+          <span className="diag-metric-icon"><Package size={24} /></span>
           <span className="diag-metric-value">v{health.version || '2.0.0'}</span>
         </div>
         <div className="diag-metric glass-card">
           <span className="diag-metric-label">Skills</span>
-          <span className="diag-metric-icon">🛠️</span>
+          <span className="diag-metric-icon"><Wrench size={24} /></span>
           <span className="diag-metric-value gradient-text">{skillCount}</span>
         </div>
         <div className="diag-metric glass-card">
           <span className="diag-metric-label">Prompts</span>
-          <span className="diag-metric-icon">📝</span>
+          <span className="diag-metric-icon"><FileText size={24} /></span>
           <span className="diag-metric-value gradient-text">{promptCount}</span>
         </div>
         <div className="diag-metric glass-card">
           <span className="diag-metric-label">Schemas</span>
-          <span className="diag-metric-icon">📋</span>
+          <span className="diag-metric-icon"><ClipboardList size={24} /></span>
           <span className="diag-metric-value gradient-text">{schemas.length}</span>
         </div>
       </div>
 
       {/* Infrastructure */}
-      <h3 className="diag-section-title">🗄️ Infrastructure</h3>
+      <h3 className="diag-section-title flex-center gap-2"><Server size={20} /> Infrastructure</h3>
       <div className="diag-infra-grid">
         {infra.map((svc, i) => (
           <div key={i} className="glass-card diag-infra-card" style={{ animationDelay: `${i * 0.08}s` }}>
             <div className="diag-infra-header">
-              <span className="diag-infra-icon">{svc.icon}</span>
+              <span className="diag-infra-icon"><svc.icon size={28} /></span>
               <div>
                 <h4>{svc.name}</h4>
                 <span className="diag-infra-desc">{svc.desc}</span>
@@ -77,11 +78,11 @@ export default function DiagnosticsPage() {
             </div>
             <div className="diag-infra-details">
               <div className="diag-infra-row">
-                <span className="diag-infra-key">🌐 UI</span>
+                <span className="diag-infra-key flex-center gap-2"><Globe size={14}/> UI</span>
                 <code className="diag-infra-val">{svc.ui}</code>
               </div>
               <div className="diag-infra-row">
-                <span className="diag-infra-key">🔌 Conn</span>
+                <span className="diag-infra-key flex-center gap-2"><Plug size={14}/> Conn</span>
                 <code className="diag-infra-val">{svc.conn}</code>
               </div>
             </div>
@@ -90,11 +91,11 @@ export default function DiagnosticsPage() {
       </div>
 
       {/* Schemas */}
-      <h3 className="diag-section-title">📋 Available Schemas</h3>
+      <h3 className="diag-section-title flex-center gap-2"><ClipboardList size={20} /> Available Schemas</h3>
       <div className="diag-schemas-grid">
         {schemas.map((s, i) => (
           <div key={i} className="glass-card diag-schema-card" style={{ animationDelay: `${i * 0.06}s` }}>
-            <span className="diag-schema-icon">{schemaIcons[s] || '📄'}</span>
+            <span className="diag-schema-icon"><Share2 size={24} /></span>
             <span className="diag-schema-name">{s}</span>
           </div>
         ))}
@@ -102,7 +103,7 @@ export default function DiagnosticsPage() {
 
       {/* Raw data */}
       <details className="diag-raw">
-        <summary className="diag-raw-toggle">🔧 Raw Diagnostics Data</summary>
+        <summary className="diag-raw-toggle flex-center gap-2"><SearchCode size={16}/> Raw Diagnostics Data</summary>
         <pre className="diag-raw-content">{JSON.stringify({ health, diagnostics: diag }, null, 2)}</pre>
       </details>
     </div>

@@ -148,3 +148,6 @@
   margin-top: 8px;
   animation: fadeIn 0.3s ease;
 }
+.status-indicator { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px currentColor; }
+.bg-success { background-color: var(--success); color: var(--success); }
+.bg-error { background-color: var(--error); color: var(--error); }

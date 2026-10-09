@@ -177,13 +177,74 @@
 
 .chat-bubble-meta {
   display: flex;
-  gap: 14px;
+  flex-direction: column;
+  gap: 6px;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid rgba(255,255,255,0.04);
   color: var(--text-muted);
   font-size: 0.72rem;
   font-weight: 500;
+}
+.chat-sources-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  width: 100%;
+}
+.chat-sources-block strong {
+  color: var(--accent-primary);
+}
+.chat-sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.chat-source-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.chat-source-summary {
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-primary);
+  user-select: none;
+  font-size: 0.75rem;
+  transition: background 0.2s;
+}
+.chat-source-summary:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.chat-source-details {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.2);
+}
+.chat-source-explanation {
+  color: var(--accent-secondary);
+  margin-bottom: 6px;
+  font-size: 0.72rem;
+}
+.chat-source-data {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chat-data-row {
+  font-family: monospace;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  overflow-wrap: break-word;
 }
 
 /* Typing indicator */
@@ -245,3 +306,33 @@
   transition: all var(--transition-normal);
 }
 .chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.flex-center {
+  display: flex;
+  align-items: center;
+}
+
+.align-center {
+  display: inline-flex;
+  align-items: center;
+}
+
+.gap-2 {
+  gap: 0.5rem;
+}
+
+.mr-1 {
+  margin-right: 0.25rem;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem;
+}

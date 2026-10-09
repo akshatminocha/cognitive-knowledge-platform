@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2 } from 'lucide-react';
 import { queryAgent, getSkills, listSessions, exportUKA } from '../api/client';
 import './ChatPage.css';
 
@@ -38,6 +39,7 @@ export default function ChatPage() {
           total_steps: result.total_steps,
           duration_ms: result.duration_ms,
           tools_used: result.tools_used || [],
+          sources: result.sources || [],
         },
         ts: Date.now(),
       };
@@ -71,10 +73,10 @@ export default function ChatPage() {
   return (
     <div className="chat-layout">
       <div className="chat-sidebar glass-card">
-        <h3>Sessions</h3>
+        <h3 className="sidebar-heading">Conversations</h3>
         <div className="session-list">
           {sessions.length === 0 ? (
-            <p className="no-sessions">No previous sessions</p>
+            <p className="no-sessions">No previous sessions found</p>
           ) : (
             sessions.map(s => (
               <div 
@@ -82,7 +84,7 @@ export default function ChatPage() {
                 className={`session-item ${sessionId === s.session_id ? 'active' : ''}`}
                 onClick={() => setSessionId(s.session_id)}
               >
-                <span className="session-icon">💬</span>
+                <MessageSquare size={16} className="session-icon" />
                 <span className="session-id">{s.session_id.split('-')[0]}</span>
               </div>
             ))
@@ -93,92 +95,127 @@ export default function ChatPage() {
       <div className="chat-page">
         <div className="page-header">
           <h2 className="gradient-text">Knowledge Agent</h2>
-        <p>Ask questions about your ingested data using natural language.</p>
-      </div>
-
-      <div className="chat-toolbar">
-        <div className="chat-toolbar-left">
-          <span className="tag">Mode: {activeSkill === 'auto' ? 'Auto-routing' : activeSkill}</span>
+          <p>Ask questions about your ingested data using natural language.</p>
         </div>
-        <div className="chat-toolbar-right">
-          <select value={activeSkill} onChange={e => setActiveSkill(e.target.value)} className="skill-select" title="Active Skill">
-            {skillOptions.map(s => (
-              <option key={s} value={s}>{s === 'auto' ? '🤖 Auto-Select' : `⚡ ${s}`}</option>
-            ))}
-          </select>
-          <select value={activeModel} onChange={e => setActiveModel(e.target.value)} className="skill-select" title="Swap Model">
-            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
-            <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-            <option value="gpt-4o">GPT-4o</option>
-          </select>
-          {messages.length > 0 && (
-            <>
-              <button className="btn" onClick={exportChat} title="Export Universal Knowledge Artifact (UKA) / Zip">📦</button>
-              <button className="btn" onClick={clearChat} title="Clear chat">🗑️</button>
-            </>
-          )}
+
+        <div className="chat-toolbar">
+          <div className="chat-toolbar-left flex-center gap-2">
+            <span className="tag align-center"><Settings2 size={14} className="mr-1"/> Mode: {activeSkill === 'auto' ? 'Auto-routing' : activeSkill}</span>
+          </div>
+          <div className="chat-toolbar-right flex-center gap-2">
+            <select value={activeSkill} onChange={e => setActiveSkill(e.target.value)} className="skill-select" title="Active Skill">
+              {skillOptions.map(s => (
+                <option key={s} value={s}>{s === 'auto' ? '🤖 Auto-Select' : `⚡ ${s}`}</option>
+              ))}
+            </select>
+            <select value={activeModel} onChange={e => setActiveModel(e.target.value)} className="skill-select" title="Swap Model">
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+              <option value="gpt-4o">GPT-4o</option>
+            </select>
+            {messages.length > 0 && (
+              <div className="toolbar-actions">
+                <button className="btn icon-btn" onClick={exportChat} title="Export Universal Knowledge Artifact (UKA) / Zip"><Package size={18} /></button>
+                <button className="btn icon-btn" onClick={clearChat} title="Clear chat"><Trash2 size={18} /></button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      <div className="chat-messages">
-        {messages.length === 0 && !loading && (
-          <div className="chat-welcome">
-            <div className="chat-welcome-icon">💬</div>
-            <h3>Start a Conversation</h3>
-            <p>Ask questions about your knowledge base, generate reports, or explore your data graph.</p>
-            <div className="chat-welcome-tags">
-              <span className="tag">💊 Clinical data</span>
-              <span className="tag">📊 Reports</span>
-              <span className="tag">🔍 Knowledge Q&A</span>
-              <span className="tag">🕸️ Graph queries</span>
-            </div>
-          </div>
-        )}
-
-        {messages.map((msg, i) => (
-          <div key={i} className={`chat-bubble ${msg.role}`}>
-            <div className="chat-bubble-avatar">{msg.role === 'user' ? '👤' : '🧠'}</div>
-            <div className="chat-bubble-body">
-              <div className="chat-bubble-content">{msg.content}</div>
-              {msg.metadata && (
-                <div className="chat-bubble-meta">
-                  <span>⚡ {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
-                  <span>⏱️ {Math.round(msg.metadata.duration_ms)}ms</span>
-                  <span>🤖 {msg.metadata.model_used}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {loading && (
-          <div className="chat-bubble assistant">
-            <div className="chat-bubble-avatar">🧠</div>
-            <div className="chat-bubble-body">
-              <div className="chat-typing">
-                <span></span><span></span><span></span>
+        <div className="chat-messages">
+          {messages.length === 0 && !loading && (
+            <div className="chat-welcome">
+              <div className="chat-welcome-icon"><MessageSquare size={48} /></div>
+              <h3>Start a Conversation</h3>
+              <p>Ask questions about your knowledge base, generate reports, or explore your data graph.</p>
+              <div className="chat-welcome-tags">
+                <span className="tag">💊 Clinical data</span>
+                <span className="tag">📊 Reports</span>
+                <span className="tag">🔍 Knowledge Q&A</span>
+                <span className="tag">🕸️ Graph queries</span>
               </div>
             </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+          )}
 
-      <div className="chat-input-bar">
-        <textarea
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask a question about your knowledge base..."
-          rows={1}
-          className="chat-input"
-          disabled={loading}
-        />
-        <button className="btn-primary chat-send-btn" onClick={handleSend} disabled={loading || !input.trim()}>
-          {loading ? <span className="spinner" /> : '➤'}
-        </button>
-      </div>
+          {messages.map((msg, i) => (
+            <div key={i} className={`chat-bubble ${msg.role}`}>
+              <div className="chat-bubble-avatar">
+                {msg.role === 'user' ? <User size={20} /> : <Brain size={20} />}
+              </div>
+              <div className="chat-bubble-body">
+                <div className="chat-bubble-content">{msg.content}</div>
+                {msg.metadata && (
+                  <div className="chat-bubble-meta">
+                    <div className="flex-center gap-3">
+                      <span>⚡ {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
+                      <span>⏱️ {Math.round(msg.metadata.duration_ms)}ms</span>
+                      <span>🤖 {msg.metadata.model_used}</span>
+                    </div>
+                    {msg.metadata.sources && msg.metadata.sources.length > 0 && (
+                      <div className="chat-sources-block">
+                        <strong>📚 Data Sources:</strong>
+                        <div className="chat-sources-list">
+                          {msg.metadata.sources.map((src, idx) => {
+                            const isString = typeof src === 'string';
+                            const label = isString ? src : src.label;
+                            const explanation = isString ? 'Source referenced during LLM generation.' : src.explanation;
+                            const data = isString ? null : src.data;
+                            
+                            return (
+                              <details key={idx} className="chat-source-item">
+                                <summary className="chat-source-summary">{label}</summary>
+                                <div className="chat-source-details">
+                                  <p className="chat-source-explanation">{explanation}</p>
+                                  {data && data.length > 0 && (
+                                    <div className="chat-source-data">
+                                      {data.map((d, i) => (
+                                        <div key={i} className="chat-data-row">
+                                          {src.type === 'vector' ? `[${d.file}] ${d.snippet}` : d}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </details>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div className="chat-bubble assistant">
+              <div className="chat-bubble-avatar"><Brain size={20} /></div>
+              <div className="chat-bubble-body">
+                <div className="chat-typing">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div className="chat-input-bar">
+          <textarea
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask a question about your knowledge base..."
+            rows={1}
+            className="chat-input"
+            disabled={loading}
+          />
+          <button className="btn-primary chat-send-btn" onClick={handleSend} disabled={loading || !input.trim()}>
+            {loading ? <span className="spinner" /> : <Send size={18} />}
+          </button>
+        </div>
       </div>
     </div>
   );

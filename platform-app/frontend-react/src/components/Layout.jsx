@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
+import { MessageSquare, Upload, Library, Activity, Brain, ChevronLeft, ChevronRight, CheckCircle2, XCircle } from 'lucide-react';
 import { getHealth, getSchemas } from '../api/client';
 import './Layout.css';
 
 const NAV_ITEMS = [
-  { path: '/', icon: '💬', label: 'Chat' },
-  { path: '/ingest', icon: '📤', label: 'Ingest' },
-  { path: '/library', icon: '🧩', label: 'Library' },
-  { path: '/diagnostics', icon: '📊', label: 'Diagnostics' },
+  { path: '/', icon: MessageSquare, label: 'Chat' },
+  { path: '/ingest', icon: Upload, label: 'Ingest' },
+  { path: '/library', icon: Library, label: 'Library' },
+  { path: '/diagnostics', icon: Activity, label: 'Diagnostics' },
 ];
 
 export default function Layout({ children }) {
@@ -30,7 +31,7 @@ export default function Layout({ children }) {
     <div className="layout">
       <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
-          <div className="sidebar-logo">🧠</div>
+          <div className="sidebar-logo"><Brain size={32} className="text-primary" /></div>
           {!collapsed && (
             <div className="sidebar-title">
               <h1 className="gradient-text">CKP</h1>
@@ -38,13 +39,13 @@ export default function Layout({ children }) {
             </div>
           )}
           <button className="sidebar-toggle" onClick={() => setCollapsed(!collapsed)} title={collapsed ? 'Expand' : 'Collapse'}>
-            {collapsed ? '▶' : '◀'}
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
 
         {!collapsed && (
           <div className="sidebar-schema">
-            <label className="sidebar-label">Schema</label>
+            <label className="sidebar-label">Active Schema</label>
             <select value={activeSchema} onChange={e => setActiveSchema(e.target.value)} className="sidebar-select">
               {schemas.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -59,7 +60,7 @@ export default function Layout({ children }) {
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               title={item.label}
             >
-              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-icon"><item.icon size={20} /></span>
               {!collapsed && <span className="nav-label">{item.label}</span>}
             </NavLink>
           ))}
@@ -67,10 +68,10 @@ export default function Layout({ children }) {
 
         <div className="sidebar-footer">
           <div className="sidebar-status">
-            <span className={`status-dot ${isHealthy ? 'online' : 'offline'}`} />
+            {isHealthy ? <CheckCircle2 size={16} className="text-success" /> : <XCircle size={16} className="text-error" />}
             {!collapsed && (
-              <span style={{ color: isHealthy ? 'var(--success)' : 'var(--error)', fontWeight: 500, fontSize: '0.82rem' }}>
-                {isHealthy ? 'Connected' : 'Unreachable'}
+              <span className={isHealthy ? 'text-success' : 'text-error'} style={{ fontWeight: 500, fontSize: '0.85rem' }}>
+                {isHealthy ? 'System Online' : 'Unreachable'}
               </span>
             )}
           </div>

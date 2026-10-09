@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Wrench, FileText, Library, Database, Settings, ChartColumn, Network } from 'lucide-react';
 import { getSkills, getPrompts, getIngestedSources } from '../api/client';
 import './LibraryPage.css';
 
@@ -28,20 +29,22 @@ export default function LibraryPage() {
       </div>
 
       <div className="library-tabs">
-        <button className={`library-tab ${tab === 'skills' ? 'active' : ''}`} onClick={() => { setTab('skills'); setSelectedItem(null); }}>
-          🛠️ Skills <span className="tab-count">{skills.length}</span>
+        <button className={`library-tab flex-center gap-2 ${tab === 'skills' ? 'active' : ''}`} onClick={() => { setTab('skills'); setSelectedItem(null); }}>
+          <Wrench size={16} /> Skills <span className="tab-count">{skills.length}</span>
         </button>
-        <button className={`library-tab ${tab === 'prompts' ? 'active' : ''}`} onClick={() => { setTab('prompts'); setSelectedItem(null); }}>
-          📝 Prompts <span className="tab-count">{prompts.length}</span>
+        <button className={`library-tab flex-center gap-2 ${tab === 'prompts' ? 'active' : ''}`} onClick={() => { setTab('prompts'); setSelectedItem(null); }}>
+          <FileText size={16} /> Prompts <span className="tab-count">{prompts.length}</span>
         </button>
-        <button className={`library-tab ${tab === 'sources' ? 'active' : ''}`} onClick={() => { setTab('sources'); setSelectedItem(null); }}>
-          📚 Sources <span className="tab-count">{sources.length}</span>
+        <button className={`library-tab flex-center gap-2 ${tab === 'sources' ? 'active' : ''}`} onClick={() => { setTab('sources'); setSelectedItem(null); }}>
+          <Library size={16} /> Sources <span className="tab-count">{sources.length}</span>
         </button>
       </div>
 
       {items.length === 0 && (
         <div className="library-empty glass-card">
-          <div className="library-empty-icon">{tab === 'skills' ? '🛠️' : tab === 'prompts' ? '📝' : '📚'}</div>
+          <div className="library-empty-icon">
+            {tab === 'skills' ? <Wrench size={48} /> : tab === 'prompts' ? <FileText size={48} /> : <Library size={48} />}
+          </div>
           <h3>No {tab} found</h3>
           <p>Create your first {tab === 'skills' ? 'skill' : tab === 'prompts' ? 'prompt template' : 'data source'} to get started.</p>
         </div>
@@ -64,11 +67,11 @@ export default function LibraryPage() {
               {(item.description || item.type || '').slice(0, 120)}{(item.description || '').length > 120 ? '...' : ''}
             </p>
             <div className="library-card-footer">
-              {item.tools && <span>🔧 {item.tools.length} tools</span>}
-              {item.variables && <span>📊 {item.variables.length} vars</span>}
+              {item.tools && <span className="flex-center gap-2"><Settings size={14}/> {item.tools.length} tools</span>}
+              {item.variables && <span className="flex-center gap-2"><ChartColumn size={14}/> {item.variables.length} vars</span>}
               {item.version && <span>v{item.version}</span>}
-              {item.points_count !== undefined && <span>🔮 {item.points_count} points</span>}
-              {item.node_count !== undefined && <span>🕸️ {item.node_count} nodes</span>}
+              {item.points_count !== undefined && <span className="flex-center gap-2"><Database size={14}/> {item.points_count} points</span>}
+              {item.node_count !== undefined && <span className="flex-center gap-2"><Network size={14}/> {item.node_count} nodes</span>}
               {item.tags && item.tags.map((t, j) => <span key={j} className="tag">{t}</span>)}
             </div>
 

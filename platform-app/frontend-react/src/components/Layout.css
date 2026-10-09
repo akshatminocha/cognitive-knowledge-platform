@@ -27,8 +27,14 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 20px 16px 16px;
+  padding: 20px 40px 16px 16px; /* Increased right padding for the absolute button */
   position: relative;
+}
+.sidebar.collapsed .sidebar-header {
+  padding: 20px 0 16px 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
 }
 .sidebar-logo {
   font-size: 1.8rem;
@@ -65,6 +71,12 @@
   align-items: center;
   justify-content: center;
   transition: all var(--transition-normal);
+}
+.sidebar.collapsed .sidebar-toggle {
+  position: relative;
+  right: auto;
+  top: auto;
+  transform: none;
 }
 .sidebar-toggle:hover {
   background: rgba(122, 82, 244, 0.2);

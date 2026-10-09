@@ -16,10 +16,10 @@ export async function queryAgent(query, sessionId = null, schema = 'healthtech',
   });
 }
 
-export async function ingestFile(file, schema = 'healthtech') {
+export async function ingestFile(file, schema = 'healthtech', chunkSize = 512, overlap = 64) {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${API_BASE}/ingest?schema_name=${schema}`, { method: 'POST', body: form });
+  const res = await fetch(`${API_BASE}/ingest?schema_name=${schema}&chunk_size=${chunkSize}&chunk_overlap=${overlap}`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -80,7 +80,7 @@ export async function exportUKA(sessionId) {
 export async function getIngestedSources() {
   try {
     const data = await fetchJSON(`${API_BASE}/ingest/sources`);
-    return data || [];
+    return data.sources || [];
   } catch {
     return [];
   }
