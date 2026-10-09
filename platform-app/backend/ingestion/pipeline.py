@@ -164,11 +164,21 @@ class IngestionPipeline:
             try:
                 chunk_texts = [chunk.text for chunk in chunks]
                 if chunk_texts:
-                    embed_response = await litellm.aembedding(
-                        model=EMBEDDING_MODEL,
-                        input=chunk_texts,
-                    )
-                    embeddings = [item["embedding"] for item in embed_response.data]
+                    if EMBEDDING_MODEL == "local":
+                        # Fast local embeddings (all-MiniLM-L6-v2)
+                        from sentence_transformers import SentenceTransformer
+                        if not hasattr(self, "_local_embed_model"):
+                            self._local_embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+                        # .encode returns numpy array, convert to python lists
+                        vectors = self._local_embed_model.encode(chunk_texts)
+                        embeddings = vectors.tolist()
+                    else:
+                        embed_response = await litellm.aembedding(
+                            model=EMBEDDING_MODEL,
+                            input=chunk_texts,
+                        )
+                        embeddings = [item["embedding"] for item in embed_response.data]
+                        
                     logger.info(f"Generated {len(embeddings)} embeddings (dim={len(embeddings[0])})")
             except Exception as e:
                 logger.warning(f"Embedding failed (non-fatal): {e}")

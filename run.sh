@@ -37,9 +37,9 @@ uv sync
 
 # 4. Start Backend (in background)
 echo -e "\n${YELLOW}[3/4] Starting FastAPI Backend...${NC}"
-nohup uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload > backend.log 2>&1 &
+nohup bash -c 'set -a; source .env; set +a; uv run uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload' > backend.log 2>&1 &
 BACKEND_PID=$!
-echo "Backend running (PID: $BACKEND_PID)"
+echo "Backend running (PID: $BACKEND_PID) - Logs are saving to backend.log"
 
 # 5. Start Frontend(s)
 echo -e "\n${YELLOW}[4/4] Starting Frontend...${NC}"

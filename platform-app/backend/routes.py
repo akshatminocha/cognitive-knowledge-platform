@@ -52,8 +52,7 @@ class QueryResponse(BaseModel):
     groundedness_score: float
     pii_entities_masked: int
     tools_used: list[str] = []
-
-
+    sources: list[dict] = []
 class IngestionRequest(BaseModel):
     """Ingestion configuration for uploaded files."""
 
@@ -139,6 +138,52 @@ async def query_agent(request_body: QueryRequest, request: Request):
     # Execute the agent
     result = await runner.run(request_body.query, session_id=request_body.session_id)
 
+    # Collect rich data sources from tools
+    source_map = {}
+    import re
+    for step in result.steps:
+        if step.tool_name == "semantic_search":
+            key = "vector_knowledge_chunks"
+            if key not in source_map:
+                source_map[key] = {
+                    "type": "vector",
+                    "label": "Vector Store: knowledge_chunks",
+                    "explanation": "Semantic search performed on ingested chunks.",
+                    "data": []
+                }
+            if isinstance(step.tool_output, list):
+                for hit in step.tool_output:
+                    if isinstance(hit, dict):
+                        text = hit.get("text", "")[:150] + "..."
+                        fname = hit.get("metadata", {}).get("filename", "Document")
+                        source_map[key]["data"].append({"file": fname, "snippet": text})
+        
+        elif step.tool_name == "execute_cypher":
+            labels = ["Neo4j"]
+            if step.tool_input and "query" in step.tool_input:
+                query = step.tool_input["query"]
+                found = re.findall(r":([A-Za-z0-9_]+)", query)
+                if found:
+                    labels = list(set(found))
+            
+            label_str = ", ".join(labels)
+            key = f"graph_{label_str}"
+            
+            if key not in source_map:
+                source_map[key] = {
+                    "type": "graph",
+                    "label": f"Graph: {label_str}",
+                    "explanation": f"Graph query executed matching {label_str} nodes.",
+                    "data": []
+                }
+            
+            if isinstance(step.tool_output, list):
+                for record in step.tool_output:
+                    rec_str = str(record)
+                    source_map[key]["data"].append(rec_str[:150] + ("..." if len(rec_str) > 150 else ""))
+
+    unique_sources = list(source_map.values())[:3]
+                        
     return QueryResponse(
         response=result.final_response or "No answer returned.",
         session_id=request_body.session_id or "new-session",
@@ -148,6 +193,7 @@ async def query_agent(request_body: QueryRequest, request: Request):
         groundedness_score=0.95, # Mocked guardrail for now
         pii_entities_masked=0,
         tools_used=[step.tool_name for step in result.steps if step.tool_name],
+        sources=list(unique_sources)
     )
 
 
@@ -259,7 +305,6 @@ async def list_ingested_sources(request: Request):
                     "store": "qdrant",
                     "name": col.name,
                     "points_count": info.points_count,
-                    "vectors_count": info.vectors_count,
                 })
         except Exception as e:
             logger.warning(f"Failed to query Qdrant sources: {e}")

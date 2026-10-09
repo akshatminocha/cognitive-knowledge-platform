@@ -15,7 +15,8 @@ dependencies = [
     "ckp-agent-harness",
     "ckp-mcp-servers",
     "ckp-ontology-engine",
-    "ckp-guardrails"
+    "ckp-guardrails",
+    "sentence-transformers>=6.0.1",
 ]
 
 [build-system]

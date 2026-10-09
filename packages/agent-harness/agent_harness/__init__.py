@@ -16,12 +16,11 @@ Routes all LLM calls through the AI Gateway (external infra proxy).
 
 __version__ = "0.1.0"
 
-from .context_engine import ContextEngine, Session, CanonicalMessage
+from .context_engine import ContextEngine, CanonicalMessage
 from .uka_export import UKAExporter
 
 __all__ = [
     "ContextEngine",
-    "Session",
     "CanonicalMessage",
     "UKAExporter",
 ]
