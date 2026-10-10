@@ -72,6 +72,19 @@ export async function listSessions() {
   }
 }
 
+export async function getSession(sessionId) {
+  try {
+    const data = await fetchJSON(`${API_BASE}/sessions/${sessionId}`);
+    return data.messages || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteSession(sessionId) {
+  return fetchJSON(`${API_BASE}/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
 export async function exportUKA(sessionId) {
   // Download the ZIP file directly
   window.open(`${API_BASE}/sessions/${sessionId}/export?format=zip`, '_blank');

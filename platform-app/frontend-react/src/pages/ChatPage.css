@@ -317,8 +317,20 @@
   align-items: center;
 }
 
+.gap-1 {
+  gap: 0.25rem;
+}
+
 .gap-2 {
   gap: 0.5rem;
+}
+
+.gap-3 {
+  gap: 1rem;
+}
+
+.text-muted {
+  color: var(--text-muted);
 }
 
 .mr-1 {
@@ -336,3 +348,13 @@
   justify-content: center;
   padding: 0.4rem;
 }
+
+/* Markdown styling */
+.markdown-body p { margin-bottom: 0.8rem; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body strong { font-weight: 700; color: var(--accent-primary); }
+.markdown-body em { font-style: italic; }
+.markdown-body ul { margin-bottom: 0.8rem; padding-left: 20px; list-style-type: disc; }
+.markdown-body li { margin-bottom: 0.3rem; }
+.markdown-body code { font-family: monospace; background: rgba(255,255,255,0.1); padding: 2px 4px; border-radius: 4px; font-size: 0.85em; }
+.meta-stats { font-weight: 600; }

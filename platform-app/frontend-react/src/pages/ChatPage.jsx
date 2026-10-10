@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2 } from 'lucide-react';
-import { queryAgent, getSkills, listSessions, exportUKA } from '../api/client';
+import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { queryAgent, getSkills, listSessions, getSession, deleteSession, exportUKA } from '../api/client';
 import './ChatPage.css';
 
 export default function ChatPage() {
@@ -20,6 +21,42 @@ export default function ChatPage() {
     listSessions().then(setSessions);
   }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  const handleSessionClick = async (sid) => {
+    if (sessionId === sid) return;
+    setSessionId(sid);
+    setLoading(true);
+    try {
+      const msgs = await getSession(sid);
+      const formattedMsgs = msgs
+        .filter(m => m.role !== 'system')
+        .map(m => ({
+          role: m.role,
+          content: m.content,
+          metadata: m.metadata || {},
+          ts: Date.parse(m.timestamp) || Date.now()
+        }));
+      setMessages(formattedMsgs);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteSession = async (e, sid) => {
+    e.stopPropagation(); // prevent clicking the session row
+    try {
+      await deleteSession(sid);
+      if (sessionId === sid) {
+        setSessionId(null);
+        setMessages([]);
+      }
+      listSessions().then(setSessions);
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+    }
+  };
 
   const handleSend = async () => {
     const q = input.trim();
@@ -44,7 +81,10 @@ export default function ChatPage() {
         ts: Date.now(),
       };
       setMessages(prev => [...prev, assistantMsg]);
-      if (result.session_id) setSessionId(result.session_id);
+      if (result.session_id) {
+        setSessionId(result.session_id);
+        listSessions().then(setSessions); // Refresh session list
+      }
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}`, ts: Date.now() }]);
     } finally {
@@ -82,13 +122,29 @@ export default function ChatPage() {
               <div 
                 key={s.session_id} 
                 className={`session-item ${sessionId === s.session_id ? 'active' : ''}`}
-                onClick={() => setSessionId(s.session_id)}
+                onClick={() => handleSessionClick(s.session_id)}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
               >
-                <MessageSquare size={16} className="session-icon" />
-                <span className="session-id">{s.session_id.split('-')[0]}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <MessageSquare size={16} className="session-icon" />
+                  <span className="session-id">{s.session_id.split('-')[0]}</span>
+                </div>
+                <button 
+                  className="btn icon-btn" 
+                  style={{ padding: '4px', opacity: 0.7 }}
+                  onClick={(e) => handleDeleteSession(e, s.session_id)}
+                  title="Delete Session"
+                >
+                  <Trash2 size={14} />
+                </button>
               </div>
             ))
           )}
+        </div>
+        <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border-light)' }}>
+          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={clearChat}>
+            <MessageSquare size={16} /> New Session
+          </button>
         </div>
       </div>
       
@@ -105,7 +161,7 @@ export default function ChatPage() {
           <div className="chat-toolbar-right flex-center gap-2">
             <select value={activeSkill} onChange={e => setActiveSkill(e.target.value)} className="skill-select" title="Active Skill">
               {skillOptions.map(s => (
-                <option key={s} value={s}>{s === 'auto' ? '🤖 Auto-Select' : `⚡ ${s}`}</option>
+                <option key={s} value={s}>{s === 'auto' ? 'Auto-Select' : s}</option>
               ))}
             </select>
             <select value={activeModel} onChange={e => setActiveModel(e.target.value)} className="skill-select" title="Swap Model">
@@ -130,10 +186,10 @@ export default function ChatPage() {
               <h3>Start a Conversation</h3>
               <p>Ask questions about your knowledge base, generate reports, or explore your data graph.</p>
               <div className="chat-welcome-tags">
-                <span className="tag">💊 Clinical data</span>
-                <span className="tag">📊 Reports</span>
-                <span className="tag">🔍 Knowledge Q&A</span>
-                <span className="tag">🕸️ Graph queries</span>
+                <span className="tag flex-center gap-2"><Activity size={14}/> Clinical data</span>
+                <span className="tag flex-center gap-2"><FileText size={14}/> Reports</span>
+                <span className="tag flex-center gap-2"><Search size={14}/> Knowledge Q&A</span>
+                <span className="tag flex-center gap-2"><Network size={14}/> Graph queries</span>
               </div>
             </div>
           )}
@@ -144,13 +200,15 @@ export default function ChatPage() {
                 {msg.role === 'user' ? <User size={20} /> : <Brain size={20} />}
               </div>
               <div className="chat-bubble-body">
-                <div className="chat-bubble-content">{msg.content}</div>
+                <div className="chat-bubble-content markdown-body">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
                 {msg.metadata && (
                   <div className="chat-bubble-meta">
-                    <div className="flex-center gap-3">
-                      <span>⚡ {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
-                      <span>⏱️ {Math.round(msg.metadata.duration_ms)}ms</span>
-                      <span>🤖 {msg.metadata.model_used}</span>
+                    <div className="flex-center gap-3 meta-stats">
+                      <span className="flex-center gap-1"><Zap size={14} className="text-muted" /> {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
+                      <span className="flex-center gap-1"><Clock size={14} className="text-muted" /> {Math.round(msg.metadata.duration_ms)}ms</span>
+                      <span className="flex-center gap-1"><Cpu size={14} className="text-muted" /> {msg.metadata.model_used}</span>
                     </div>
                     {msg.metadata.sources && msg.metadata.sources.length > 0 && (
                       <div className="chat-sources-block">

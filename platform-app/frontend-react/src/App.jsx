@@ -4,6 +4,7 @@ import ChatPage from './pages/ChatPage';
 import IngestPage from './pages/IngestPage';
 import LibraryPage from './pages/LibraryPage';
 import DiagnosticsPage from './pages/DiagnosticsPage';
+import AdminPage from './pages/AdminPage';
 import './App.css';
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/ingest" element={<IngestPage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Routes>
       </Layout>
     </BrowserRouter>
