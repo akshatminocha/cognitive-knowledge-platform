@@ -172,14 +172,18 @@ class AgentRunner:
         step_start = time.monotonic()
         instruction = "You are a helpful knowledge assistant."
         if skill:
-            instruction = skill.description
+            instruction = skill.system_prompt
 
         try:
             from google.adk.runners import InMemoryRunner
+            from mcp_servers.graph_server import execute_cypher
+            from mcp_servers.retrieval_server import semantic_search
+            
             agent = Agent(
                 name="ckp_agent",
                 model="gemini-2.5-flash",
                 instruction=instruction,
+                tools=[execute_cypher, semantic_search]
             )
             runner = InMemoryRunner(agent=agent)
             events = await runner.run_debug(query, quiet=True)
@@ -256,4 +260,3 @@ class AgentRunner:
             if len(set(recent)) == 1:
                 return True
 
-        return False

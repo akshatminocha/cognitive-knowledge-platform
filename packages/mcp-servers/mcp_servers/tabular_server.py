@@ -29,6 +29,22 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "ckp_db")
 
 
 # ---------------------------------------------------------------------------
+STATE = {}
+
+async def get_pool() -> asyncpg.Pool:
+    if "pg_pool" not in STATE:
+        STATE["pg_pool"] = await asyncpg.create_pool(
+            host=POSTGRES_HOST,
+            port=POSTGRES_PORT,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            database=POSTGRES_DB,
+            min_size=2,
+            max_size=10,
+        )
+    return STATE["pg_pool"]
+
+# ---------------------------------------------------------------------------
 # Lifespan: manage the asyncpg connection pool
 # ---------------------------------------------------------------------------
 @asynccontextmanager
@@ -49,7 +65,7 @@ async def lifespan(server: FastMCP):
             version = await conn.fetchval("SELECT version()")
             logger.info(f"Connected to PostgreSQL: {version[:60]}...")
 
-        server.state["pg_pool"] = pool
+        STATE["pg_pool"] = pool
         yield
     finally:
         await pool.close()
@@ -61,7 +77,6 @@ async def lifespan(server: FastMCP):
 # ---------------------------------------------------------------------------
 mcp = FastMCP(
     name="tabular-mcp",
-    description="PostgreSQL — Read-only SQL query execution for structured data analytics",
     lifespan=lifespan,
 )
 
@@ -94,7 +109,7 @@ async def execute_sql(
     Example:
         execute_sql("SELECT * FROM patients WHERE diagnosis = $1", params=["diabetes"])
     """
-    pool: asyncpg.Pool = mcp.state["pg_pool"]
+    pool: asyncpg.Pool = await get_pool()
 
     # Auto-append LIMIT if not present
     query_upper = query.upper().strip().rstrip(";")
@@ -125,7 +140,7 @@ async def get_table_schema(table_name: str) -> list[dict]:
     Returns:
         A list of column definitions with name, type, and nullable info.
     """
-    pool: asyncpg.Pool = mcp.state["pg_pool"]
+    pool: asyncpg.Pool = await get_pool()
 
     query = """
         SELECT
@@ -163,7 +178,7 @@ async def list_tables() -> list[dict]:
     Returns:
         A list of table info dicts with name and approximate row count.
     """
-    pool: asyncpg.Pool = mcp.state["pg_pool"]
+    pool: asyncpg.Pool = await get_pool()
 
     query = """
         SELECT
@@ -197,7 +212,7 @@ async def describe_database() -> dict:
     Returns:
         A dictionary with database name, size, table count, and table names.
     """
-    pool: asyncpg.Pool = mcp.state["pg_pool"]
+    pool: asyncpg.Pool = STATE["pg_pool"]
 
     async with pool.acquire() as conn:
         db_size = await conn.fetchval(

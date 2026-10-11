@@ -27,6 +27,17 @@ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "changeme")
 
 
 # ---------------------------------------------------------------------------
+STATE = {}
+
+def get_driver() -> AsyncDriver:
+    if "neo4j" not in STATE:
+        STATE["neo4j"] = AsyncGraphDatabase.driver(
+            NEO4J_URI,
+            auth=(NEO4J_USER, NEO4J_PASSWORD),
+        )
+    return STATE["neo4j"]
+
+# ---------------------------------------------------------------------------
 # Lifespan: manage the Neo4j async driver
 # ---------------------------------------------------------------------------
 @asynccontextmanager
@@ -39,7 +50,7 @@ async def lifespan(server: FastMCP):
     try:
         await driver.verify_connectivity()
         logger.info(f"Connected to Neo4j at {NEO4J_URI}")
-        server.state["neo4j"] = driver
+        STATE["neo4j"] = driver
         yield
     finally:
         await driver.close()
@@ -51,7 +62,6 @@ async def lifespan(server: FastMCP):
 # ---------------------------------------------------------------------------
 mcp = FastMCP(
     name="graph-mcp",
-    description="Neo4j Knowledge Graph — Schema-aware Cypher query execution",
     lifespan=lifespan,
 )
 
@@ -88,7 +98,7 @@ async def execute_cypher(query: str, params: dict[str, Any] | None = None) -> li
     Example:
         execute_cypher("MATCH (p:Patient) RETURN p.name, p.patient_id LIMIT 10")
     """
-    driver: AsyncDriver = mcp.state["neo4j"]
+    driver: AsyncDriver = get_driver()
     logger.info(f"Executing Cypher: {query[:100]}...")
     records = await _run_cypher(driver, query, params)
     logger.info(f"Returned {len(records)} records")
@@ -107,7 +117,7 @@ async def get_graph_schema() -> dict:
     Returns:
         A dictionary with 'node_labels', 'relationship_types', and 'property_keys'.
     """
-    driver: AsyncDriver = mcp.state["neo4j"]
+    driver: AsyncDriver = get_driver()
 
     labels = await _run_cypher(driver, "CALL db.labels() YIELD label RETURN label")
     rel_types = await _run_cypher(
@@ -135,7 +145,7 @@ async def count_nodes(label: str | None = None) -> dict:
     Returns:
         A dictionary with the count.
     """
-    driver: AsyncDriver = mcp.state["neo4j"]
+    driver: AsyncDriver = get_driver()
 
     if label:
         query = f"MATCH (n:`{label}`) RETURN count(n) AS count"
@@ -167,7 +177,7 @@ async def find_neighbors(
     Returns:
         A list of connected nodes with relationship info.
     """
-    driver: AsyncDriver = mcp.state["neo4j"]
+    driver: AsyncDriver = get_driver()
 
     query = (
         f"MATCH (start:`{node_label}` {{{property_name}: $value}})"

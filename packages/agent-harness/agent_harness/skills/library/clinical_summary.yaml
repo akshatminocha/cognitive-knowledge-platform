@@ -18,12 +18,15 @@ system_prompt: |
   5. **Risk Flags** — Any drug interactions, abnormal lab values, or contraindications
 
   Rules:
+  - You MUST use the execute_cypher or semantic_search tools before answering ANY user question.
+  - NEVER rely on your pre-trained memory or hallucinate facts.
+  - If the patient is not found in the graph or vector store, you MUST reply: 'I do not have enough information to answer this based on the provided sources'.
   - Only include data you retrieved from the knowledge graph.
   - Flag any potential drug interactions between active medications.
   - If lab values are outside the reference range, highlight them.
 
 tools:
-  - graph_query
+  - execute_cypher
   - semantic_search
 
 input_schema:

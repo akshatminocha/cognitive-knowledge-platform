@@ -34,6 +34,14 @@ DEFAULT_VECTOR_SIZE = int(os.getenv("QDRANT_VECTOR_SIZE", "384"))  # all-MiniLM-
 
 
 # ---------------------------------------------------------------------------
+STATE = {}
+
+def get_client() -> AsyncQdrantClient:
+    if "qdrant" not in STATE:
+        STATE["qdrant"] = AsyncQdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    return STATE["qdrant"]
+
+# ---------------------------------------------------------------------------
 # Lifespan: manage the Qdrant async client
 # ---------------------------------------------------------------------------
 @asynccontextmanager
@@ -47,7 +55,7 @@ async def lifespan(server: FastMCP):
             f"Connected to Qdrant at {QDRANT_URL} "
             f"({len(collections.collections)} collections)"
         )
-        server.state["qdrant"] = client
+        STATE["qdrant"] = client
         yield
     finally:
         await client.close()
@@ -59,7 +67,6 @@ async def lifespan(server: FastMCP):
 # ---------------------------------------------------------------------------
 mcp = FastMCP(
     name="retrieval-mcp",
-    description="Qdrant Vector Store — Semantic similarity search for RAG retrieval",
     lifespan=lifespan,
 )
 
@@ -95,7 +102,7 @@ async def semantic_search(
             metadata_filter={"entity_type": "Patient"}
         )
     """
-    client: AsyncQdrantClient = mcp.state["qdrant"]
+    client: AsyncQdrantClient = get_client()
     target_collection = collection or DEFAULT_COLLECTION
 
     # Build filter if metadata_filter provided
@@ -136,7 +143,7 @@ async def list_collections() -> list[dict]:
     Returns:
         A list of collection info dicts with name, vector size, and point count.
     """
-    client: AsyncQdrantClient = mcp.state["qdrant"]
+    client: AsyncQdrantClient = get_client()
     collections = await client.get_collections()
 
     result = []
@@ -171,7 +178,7 @@ async def get_chunk_by_id(
     Returns:
         The chunk's text and metadata, or None if not found.
     """
-    client: AsyncQdrantClient = mcp.state["qdrant"]
+    client: AsyncQdrantClient = get_client()
     target_collection = collection or DEFAULT_COLLECTION
 
     results = await client.retrieve(
@@ -211,7 +218,7 @@ async def upsert_chunks(
     Returns:
         A summary dict with the number of upserted points.
     """
-    client: AsyncQdrantClient = mcp.state["qdrant"]
+    client: AsyncQdrantClient = get_client()
     target_collection = collection or DEFAULT_COLLECTION
 
     # Ensure collection exists

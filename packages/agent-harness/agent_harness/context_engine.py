@@ -1,5 +1,5 @@
 """
-Context Engine — Model-agnostic canonical session store.
+Context Engine — Model-agnostic canonical session store with SQLite persistence.
 
 The single source of truth for conversation state. All messages are stored
 in a canonical format (CanonicalMessage) and converted to provider-specific
@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+import sqlite3
+import json
+import os
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -78,24 +81,97 @@ class ContextEngine:
     - Message history with windowing
     - Context formatting for LLM consumption
     - Session export/import for persistence
-
-    Usage:
-        ctx = ContextEngine()
-        ctx.add_message(CanonicalMessage(role=Role.USER, content="Hello"))
-        ctx.add_message(CanonicalMessage(role=Role.ASSISTANT, content="Hi!"))
-
-        # Get messages for LLM context:
-        messages = ctx.get_context_window(max_messages=20)
-
-        # Switch models mid-session — just change the adapter:
-        gemini_msgs = adapter.format(messages, provider="gemini")
-        openai_msgs = adapter.format(messages, provider="openai")
     """
 
-    def __init__(self, max_history: int = 100) -> None:
+    def __init__(self, max_history: int = 100, db_path: str = "data/sessions.db") -> None:
         self.max_history = max_history
         self._sessions: dict[str, list[CanonicalMessage]] = defaultdict(list)
         self._active_session: str = str(uuid.uuid4())
+        
+        self.db_path = db_path
+        self._init_db()
+        self._load_from_db()
+
+    def _init_db(self) -> None:
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+        # Use check_same_thread=False since FastAPI might access from multiple threads
+        with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+            conn.execute('''CREATE TABLE IF NOT EXISTS sessions
+                            (session_id TEXT PRIMARY KEY, last_active DATETIME)''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS messages
+                            (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                             session_id TEXT,
+                             data TEXT)''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS active_session
+                            (id INTEGER PRIMARY KEY CHECK (id = 1), session_id TEXT)''')
+                            
+    def _load_from_db(self) -> None:
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                cur = conn.execute('SELECT session_id FROM active_session WHERE id = 1')
+                row = cur.fetchone()
+                if row:
+                    self._active_session = row[0]
+                
+                cur = conn.execute('SELECT session_id, data FROM messages ORDER BY id ASC')
+                for session_id, data_str in cur.fetchall():
+                    try:
+                        data = json.loads(data_str)
+                        msg = CanonicalMessage(
+                            role=Role(data.get('role', 'user')),
+                            content=data.get('content', ''),
+                            message_id=data.get('message_id', str(uuid.uuid4())),
+                            session_id=data.get('session_id', session_id),
+                            timestamp=datetime.fromisoformat(data.get('timestamp', datetime.now(timezone.utc).isoformat())),
+                            tool_name=data.get('tool_name'),
+                            tool_input=data.get('tool_input'),
+                            tool_output=data.get('tool_output'),
+                            model_used=data.get('model_used'),
+                            metadata=data.get('metadata', {}),
+                        )
+                        self._sessions[session_id].append(msg)
+                    except Exception as e:
+                        logger.warning(f"Failed to load message from DB: {e}")
+            logger.info(f"Loaded {sum(len(s) for s in self._sessions.values())} messages from DB")
+        except Exception as e:
+            logger.error(f"Failed to initialize ContextEngine from DB: {e}")
+
+    def _save_message_to_db(self, msg: CanonicalMessage) -> None:
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                data = {
+                    'role': msg.role.value,
+                    'content': msg.content,
+                    'message_id': msg.message_id,
+                    'session_id': msg.session_id,
+                    'timestamp': msg.timestamp.isoformat(),
+                    'tool_name': msg.tool_name,
+                    'tool_input': msg.tool_input,
+                    'tool_output': msg.tool_output,
+                    'model_used': msg.model_used,
+                    'metadata': msg.metadata,
+                }
+                conn.execute('INSERT INTO messages (session_id, data) VALUES (?, ?)', 
+                             (msg.session_id, json.dumps(data)))
+                conn.execute('INSERT OR REPLACE INTO sessions (session_id, last_active) VALUES (?, ?)',
+                             (msg.session_id, datetime.now(timezone.utc).isoformat()))
+        except Exception as e:
+            logger.error(f"Failed to save message to DB: {e}")
+
+    def _set_active_session_db(self, session_id: str) -> None:
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                conn.execute('INSERT OR REPLACE INTO active_session (id, session_id) VALUES (1, ?)', (session_id,))
+        except Exception as e:
+            logger.error(f"Failed to set active session in DB: {e}")
+
+    def _clear_session_db(self, session_id: str) -> None:
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                conn.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
+                conn.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
+        except Exception as e:
+            logger.error(f"Failed to clear session from DB: {e}")
 
     @property
     def active_session_id(self) -> str:
@@ -107,6 +183,7 @@ class ContextEngine:
         sid = session_id or str(uuid.uuid4())
         self._sessions[sid] = []
         self._active_session = sid
+        self._set_active_session_db(sid)
         logger.info(f"Created session: {sid}")
         return sid
 
@@ -115,6 +192,7 @@ class ContextEngine:
         if session_id not in self._sessions:
             self._sessions[session_id] = []
         self._active_session = session_id
+        self._set_active_session_db(session_id)
 
     def add_message(self, message: CanonicalMessage) -> None:
         """
@@ -124,10 +202,13 @@ class ContextEngine:
         Enforces max_history by trimming oldest messages (keeping system messages).
         """
         sid = message.session_id or self._active_session
+        message.session_id = sid
         session = self._sessions[sid]
         session.append(message)
+        
+        self._save_message_to_db(message)
 
-        # Enforce history limit (preserve system messages)
+        # Enforce history limit in memory (preserve system messages)
         if len(session) > self.max_history:
             system_msgs = [m for m in session if m.role == Role.SYSTEM]
             non_system = [m for m in session if m.role != Role.SYSTEM]
@@ -177,10 +258,12 @@ class ContextEngine:
         ]
 
     def clear_session(self, session_id: Optional[str] = None) -> None:
-        """Clear all messages in a session."""
+        """Clear all messages in a session and remove it."""
         sid = session_id or self._active_session
-        self._sessions[sid] = []
-        logger.info(f"Cleared session: {sid}")
+        if sid in self._sessions:
+            del self._sessions[sid]
+        self._clear_session_db(sid)
+        logger.info(f"Cleared and removed session: {sid}")
 
     def export_session(self, session_id: Optional[str] = None) -> list[dict]:
         """Export a session as a list of serializable dicts."""
@@ -203,8 +286,9 @@ class ContextEngine:
     def import_session(self, messages: list[dict], session_id: Optional[str] = None) -> str:
         """Import a session from a list of dicts."""
         sid = session_id or str(uuid.uuid4())
-        self._sessions[sid] = [
-            CanonicalMessage(
+        imported = []
+        for m in messages:
+            msg = CanonicalMessage(
                 role=Role(m["role"]),
                 content=m["content"],
                 message_id=m.get("message_id", str(uuid.uuid4())),
@@ -215,7 +299,15 @@ class ContextEngine:
                 model_used=m.get("model_used"),
                 metadata=m.get("metadata", {}),
             )
-            for m in messages
-        ]
+            imported.append(msg)
+            
+        self._sessions[sid] = imported
+        
+        # Persist to DB
+        self._set_active_session_db(sid)
+        for msg in imported:
+            self._save_message_to_db(msg)
+            
         logger.info(f"Imported {len(messages)} messages into session {sid}")
         return sid
+
