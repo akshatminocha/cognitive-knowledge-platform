@@ -88,6 +88,13 @@ class DiagnosticsResponse(BaseModel):
     gateway: dict
     memory: dict
 
+class AdminConfigRequest(BaseModel):
+    """Admin dashboard configuration."""
+    guardrails: list[dict]
+    promptThreshold: float
+    gateway: dict
+
+
 
 # ---------------------------------------------------------------------------
 # Query Endpoints
@@ -158,7 +165,7 @@ async def query_agent(request_body: QueryRequest, request: Request):
                         fname = hit.get("metadata", {}).get("filename", "Document")
                         source_map[key]["data"].append({"file": fname, "snippet": text})
         
-        elif step.tool_name == "execute_cypher":
+        elif step.tool_name in ["execute_cypher", "graph_query"]:
             labels = ["Neo4j"]
             if step.tool_input and "query" in step.tool_input:
                 query = step.tool_input["query"]
@@ -202,6 +209,14 @@ async def list_sessions(request: Request):
     """List all active conversation sessions."""
     ctx = request.app.state.context_engine
     return {"sessions": ctx.list_sessions()}
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str, request: Request):
+    """Get all messages for a specific session."""
+    ctx = request.app.state.context_engine
+    return {"messages": ctx.export_session(session_id)}
+
 
 
 @router.delete("/sessions/{session_id}")
@@ -395,6 +410,37 @@ async def get_guardrail_diagnostics(request: Request):
         return guardrail_engine.config.model_dump()
     return {"status": "no_guardrail_engine"}
 
+
+# ---------------------------------------------------------------------------
+# Admin Configuration Endpoints
+# ---------------------------------------------------------------------------
+import json
+import os
+
+ADMIN_CONFIG_PATH = "data/admin_config.json"
+
+@router.get("/admin/config")
+async def get_admin_config():
+    """Get saved admin dashboard configuration."""
+    if os.path.exists(ADMIN_CONFIG_PATH):
+        try:
+            with open(ADMIN_CONFIG_PATH, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to read admin config: {e}")
+    return {}
+
+@router.post("/admin/config")
+async def save_admin_config(request: AdminConfigRequest):
+    """Save admin dashboard configuration."""
+    try:
+        os.makedirs(os.path.dirname(ADMIN_CONFIG_PATH) or ".", exist_ok=True)
+        with open(ADMIN_CONFIG_PATH, 'w') as f:
+            json.dump(request.model_dump(), f)
+        return {"status": "success"}
+    except Exception as e:
+        logger.error(f"Failed to save admin config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------------------------------------------------------
 # Skills Library Endpoints
