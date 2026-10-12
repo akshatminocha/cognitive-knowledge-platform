@@ -108,9 +108,11 @@ class AgentRunner:
         context_engine: Optional[ContextEngine] = None,
         memory: Optional[MemoryManager] = None,
         reflection: Optional[ReflectionLoop] = None,
+        context: Optional[ContextEngine] = None,
+        **kwargs: Any,
     ) -> None:
         self.config = config or RunnerConfig()
-        self.context = context_engine or ContextEngine()
+        self.context = context_engine or context or ContextEngine()
         self.memory = memory or MemoryManager()
         self.reflection = reflection or ReflectionLoop()
 
@@ -186,7 +188,7 @@ class AgentRunner:
                 tools=[execute_cypher, semantic_search]
             )
             runner = InMemoryRunner(agent=agent)
-            events = await runner.run_debug(query, quiet=True)
+            events = await runner.run_debug(query, session_id=session_id or "default_session", quiet=True)
             
             response_text = ""
             if events and events[-1].message and events[-1].message.parts:
@@ -196,6 +198,36 @@ class AgentRunner:
             if not response_text:
                 response_text = "Sorry, I couldn't generate a response."
                 
+            # Track tool execution steps from ADK events
+            step_idx = 1
+            if events:
+                for ev in events:
+                    fcalls = ev.get_function_calls() if hasattr(ev, "get_function_calls") else []
+                    if not fcalls and hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                        fcalls = [p.function_call for p in ev.content.parts if hasattr(p, "function_call") and p.function_call]
+
+                    fresps = ev.get_function_responses() if hasattr(ev, "get_function_responses") else []
+                    if not fresps and hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                        fresps = [p.function_response for p in ev.content.parts if hasattr(p, "function_response") and p.function_response]
+
+                    for fc in fcalls:
+                        tool_input = dict(fc.args) if hasattr(fc, "args") and fc.args else {}
+                        result.steps.append(StepResult(
+                            step_index=step_idx,
+                            action="tool_call",
+                            tool_name=fc.name,
+                            tool_input=tool_input,
+                            duration_ms=0.0
+                        ))
+                        step_idx += 1
+
+                    for fr in fresps:
+                        resp_val = fr.response if hasattr(fr, "response") else {}
+                        for prev_step in reversed(result.steps):
+                            if prev_step.tool_name == fr.name and prev_step.tool_output is None:
+                                prev_step.tool_output = resp_val
+                                break
+
             error_msg = None
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
@@ -203,7 +235,7 @@ class AgentRunner:
             error_msg = str(e)
 
         step = StepResult(
-            step_index=1,
+            step_index=len(result.steps) + 1,
             action="response",
             response_text=response_text,
             duration_ms=(time.monotonic() - step_start) * 1000,
@@ -211,7 +243,7 @@ class AgentRunner:
         )
         result.steps.append(step)
         result.final_response = response_text
-        result.total_steps = 1
+        result.total_steps = len(result.steps)
 
         # 5. Optional reflection
         if self.config.enable_reflection and result.final_response:
@@ -229,6 +261,12 @@ class AgentRunner:
             role=Role.ASSISTANT,
             content=result.final_response,
             session_id=session_id,
+            model_used=self.config.active_model,
+            metadata={
+                "model_used": self.config.active_model,
+                "total_steps": result.total_steps,
+                "duration_ms": (time.monotonic() - start_time) * 1000,
+            }
         ))
 
         # 7. Persist to long-term memory

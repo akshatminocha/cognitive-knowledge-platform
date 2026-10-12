@@ -67,8 +67,11 @@ async def lifespan(app: FastAPI):
     app.state.context_engine = ContextEngine()
     app.state.memory = MemoryManager()
     
-    # Initialize the core runner
-    app.state.runner = AgentRunner()
+    # Initialize the core runner with shared context and memory
+    app.state.runner = AgentRunner(
+        context_engine=app.state.context_engine,
+        memory=app.state.memory,
+    )
 
     # Initialize optional database clients (graceful degradation if unavailable)
     app.state.qdrant_client = None

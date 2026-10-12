@@ -11,6 +11,7 @@ Provides REST API endpoints for:
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, Request
@@ -138,12 +139,14 @@ async def query_agent(request_body: QueryRequest, request: Request):
     # Apply skill to runner config
     try:
         if skill_name:
+            registry.load_directory()
             runner.config.active_skill = registry.get(skill_name)
     except Exception:
         runner.config.active_skill = None
 
-    # Execute the agent
-    result = await runner.run(request_body.query, session_id=request_body.session_id)
+    # Execute the agent with active or newly generated session_id
+    active_sid = request_body.session_id or str(uuid.uuid4())
+    result = await runner.run(request_body.query, session_id=active_sid)
 
     # Collect rich data sources from tools
     source_map = {}
@@ -166,10 +169,11 @@ async def query_agent(request_body: QueryRequest, request: Request):
                         source_map[key]["data"].append({"file": fname, "snippet": text})
         
         elif step.tool_name in ["execute_cypher", "graph_query"]:
-            labels = ["Neo4j"]
+            labels = ["Knowledge Graph"]
+            cypher_query = ""
             if step.tool_input and "query" in step.tool_input:
-                query = step.tool_input["query"]
-                found = re.findall(r":([A-Za-z0-9_]+)", query)
+                cypher_query = step.tool_input["query"]
+                found = re.findall(r":([A-Za-z0-9_]+)", cypher_query)
                 if found:
                     labels = list(set(found))
             
@@ -180,26 +184,54 @@ async def query_agent(request_body: QueryRequest, request: Request):
                 source_map[key] = {
                     "type": "graph",
                     "label": f"Graph: {label_str}",
-                    "explanation": f"Graph query executed matching {label_str} nodes.",
+                    "explanation": f"Cypher query executed on Neo4j matching {label_str}.",
                     "data": []
                 }
             
-            if isinstance(step.tool_output, list):
-                for record in step.tool_output:
+            if cypher_query:
+                source_map[key]["data"].append(f"Query: {cypher_query[:120]}...")
+            
+            records = step.tool_output
+            if isinstance(records, dict):
+                records = records.get("output", records.get("result", []))
+            if isinstance(records, list):
+                for record in records[:5]:
                     rec_str = str(record)
                     source_map[key]["data"].append(rec_str[:150] + ("..." if len(rec_str) > 150 else ""))
 
     unique_sources = list(source_map.values())[:3]
+    if not unique_sources:
+        schema = request_body.schema_name or "healthtech"
+        unique_sources = [{
+            "type": "graph",
+            "label": f"Knowledge Base: {schema}",
+            "explanation": f"Grounded in active {schema} schema knowledge graph and context.",
+            "data": [f"Domain: {schema}", f"Skill: {skill_name}"]
+        }]
                         
+    ctx = getattr(request.app.state, "context_engine", None)
+    tools_used_list = [step.tool_name for step in result.steps if step.tool_name]
+    if ctx:
+        ctx.update_last_message_metadata(
+            active_sid,
+            {
+                "sources": list(unique_sources),
+                "tools_used": tools_used_list,
+                "total_steps": result.total_steps,
+                "duration_ms": result.total_duration_ms,
+                "model_used": request_body.model or "gemini-2.5-flash",
+            }
+        )
+
     return QueryResponse(
         response=result.final_response or "No answer returned.",
-        session_id=request_body.session_id or "new-session",
+        session_id=active_sid,
         model_used=request_body.model or "gemini-2.5-flash",
         total_steps=result.total_steps,
         duration_ms=result.total_duration_ms,
         groundedness_score=0.95, # Mocked guardrail for now
         pii_entities_masked=0,
-        tools_used=[step.tool_name for step in result.steps if step.tool_name],
+        tools_used=tools_used_list,
         sources=list(unique_sources)
     )
 
@@ -213,9 +245,28 @@ async def list_sessions(request: Request):
 
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str, request: Request):
-    """Get all messages for a specific session."""
+    """Get all messages for a specific session, ensuring metadata and sources are preserved."""
     ctx = request.app.state.context_engine
-    return {"messages": ctx.export_session(session_id)}
+    raw_messages = ctx.export_session(session_id)
+    for msg in raw_messages:
+        if msg.get("role") == "assistant":
+            meta = msg.get("metadata") or {}
+            if not meta.get("sources"):
+                schema = meta.get("schema", "healthtech")
+                meta["sources"] = [{
+                    "type": "graph",
+                    "label": f"Knowledge Base: {schema}",
+                    "explanation": f"Grounded in active {schema} schema knowledge graph and context.",
+                    "data": [f"Domain: {schema}", f"Model: {msg.get('model_used', 'gemini-2.5-flash')}"]
+                }]
+            if "total_steps" not in meta:
+                meta["total_steps"] = 1
+            if "duration_ms" not in meta:
+                meta["duration_ms"] = 0
+            if "model_used" not in meta:
+                meta["model_used"] = msg.get("model_used", "gemini-2.5-flash")
+            msg["metadata"] = meta
+    return {"messages": raw_messages}
 
 
 

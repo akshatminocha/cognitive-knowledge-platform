@@ -216,6 +216,38 @@ class ContextEngine:
             self._sessions[sid] = system_msgs + trimmed
             logger.debug(f"Trimmed session {sid} to {self.max_history} messages")
 
+    def update_last_message_metadata(self, session_id: Optional[str] = None, metadata_updates: dict = None) -> None:
+        """
+        Update the metadata of the last message in a session (both in-memory and in SQLite).
+        Used to persist rich data sources, tools, and execution stats after an agent run completes.
+        """
+        if not metadata_updates:
+            return
+        sid = session_id or self._active_session
+        session = self._sessions.get(sid, [])
+        if not session:
+            return
+
+        last_msg = session[-1]
+        if not isinstance(last_msg.metadata, dict):
+            last_msg.metadata = {}
+        last_msg.metadata.update(metadata_updates)
+
+        # Update in SQLite DB
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                cur = conn.execute('SELECT id, data FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 1', (sid,))
+                row = cur.fetchone()
+                if row:
+                    msg_id, data_str = row
+                    data = json.loads(data_str)
+                    if 'metadata' not in data or not isinstance(data['metadata'], dict):
+                        data['metadata'] = {}
+                    data['metadata'].update(metadata_updates)
+                    conn.execute('UPDATE messages SET data = ? WHERE id = ?', (json.dumps(data), msg_id))
+        except Exception as e:
+            logger.error(f"Failed to update last message metadata in DB: {e}")
+
     def get_context_window(
         self,
         session_id: Optional[str] = None,
@@ -247,14 +279,36 @@ class ContextEngine:
         return list(self._sessions.get(sid, []))
 
     def list_sessions(self) -> list[dict]:
-        """List all sessions with message counts."""
+        """List all sessions with message counts, sorted by latest activity descending."""
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT session_id, count(id) as msg_count, max(id) as last_id
+                    FROM messages
+                    GROUP BY session_id
+                    ORDER BY last_id DESC
+                """)
+                rows = cur.fetchall()
+                if rows:
+                    return [
+                        {
+                            "session_id": r[0],
+                            "message_count": r[1],
+                            "is_active": r[0] == self._active_session,
+                        }
+                        for r in rows
+                    ]
+        except Exception as e:
+            logger.warning(f"Error querying sessions from DB: {e}")
+
         return [
             {
                 "session_id": sid,
                 "message_count": len(msgs),
                 "is_active": sid == self._active_session,
             }
-            for sid, msgs in self._sessions.items()
+            for sid, msgs in reversed(list(self._sessions.items()))
         ]
 
     def clear_session(self, session_id: Optional[str] = None) -> None:

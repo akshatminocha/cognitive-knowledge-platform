@@ -45,6 +45,7 @@ class IngestionResult:
     relationships_extracted: int = 0
     vectors_stored: int = 0
     graph_nodes_created: int = 0
+    graph_relationships_created: int = 0
     duration_ms: float = 0.0
     errors: list[str] = field(default_factory=list)
 
@@ -252,6 +253,21 @@ class IngestionPipeline:
 
                         result.graph_nodes_created = nodes_created
                         logger.info(f"Created {nodes_created} graph nodes in Neo4j")
+
+                        rels_created = 0
+                        for extraction in extractions:
+                            for rel in extraction.relationships:
+                                rel_type = rel.relationship_type.replace(" ", "_").upper()
+                                rel_cypher = f"""
+                                MATCH (s) WHERE s.name = $source OR s.patient_id = $source OR s.doctor_id = $source
+                                MATCH (t) WHERE t.name = $target OR t.medication_id = $target OR t.diagnosis_id = $target
+                                MERGE (s)-[r:{rel_type}]->(t)
+                                """
+                                await session.run(rel_cypher, parameters={"source": str(rel.source_entity), "target": str(rel.target_entity)})
+                                rels_created += 1
+
+                        result.graph_relationships_created = rels_created
+                        logger.info(f"Created {rels_created} graph relationships in Neo4j")
                 except Exception as e:
                     logger.warning(f"Neo4j storage failed (non-fatal): {e}")
                     result.errors.append(f"Graph storage warning: {e}")
