@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network } from 'lucide-react';
+import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network, Database, Layers } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { queryAgent, getSkills, listSessions, getSession, deleteSession, exportUKA } from '../api/client';
 import './ChatPage.css';
@@ -94,7 +94,13 @@ export default function ChatPage() {
 
   const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
-  const clearChat = () => { setMessages([]); setSessionId(null); };
+  const clearChat = () => {
+    setMessages([]);
+    const newSid = typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : 'sess-' + Math.random().toString(36).substring(2, 10);
+    setSessionId(newSid);
+  };
 
   const exportChat = () => {
     if (sessionId) {
@@ -115,30 +121,43 @@ export default function ChatPage() {
       <div className="chat-sidebar glass-card">
         <h3 className="sidebar-heading">Conversations</h3>
         <div className="session-list">
-          {sessions.length === 0 ? (
+          {sessionId && !sessions.some(s => s.session_id === sessionId) && (
+            <div className="session-item active" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <MessageSquare size={16} className="session-icon" />
+                <span className="session-id">{sessionId.slice(0, 8)} (new)</span>
+              </div>
+            </div>
+          )}
+          {sessions.length === 0 && !sessionId ? (
             <p className="no-sessions">No previous sessions found</p>
           ) : (
-            sessions.map(s => (
-              <div 
-                key={s.session_id} 
-                className={`session-item ${sessionId === s.session_id ? 'active' : ''}`}
-                onClick={() => handleSessionClick(s.session_id)}
-                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <MessageSquare size={16} className="session-icon" />
-                  <span className="session-id">{s.session_id.split('-')[0]}</span>
-                </div>
-                <button 
-                  className="btn icon-btn" 
-                  style={{ padding: '4px', opacity: 0.7 }}
-                  onClick={(e) => handleDeleteSession(e, s.session_id)}
-                  title="Delete Session"
+            sessions.map(s => {
+              const displayId = s.session_id.startsWith('session-')
+                ? (s.session_id.replace(/^session-/, '').slice(0, 8) || 'session')
+                : s.session_id.slice(0, 8);
+              return (
+                <div 
+                  key={s.session_id} 
+                  className={`session-item ${sessionId === s.session_id ? 'active' : ''}`}
+                  onClick={() => handleSessionClick(s.session_id)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                 >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <MessageSquare size={16} className="session-icon" />
+                    <span className="session-id" title={s.session_id}>{displayId}</span>
+                  </div>
+                  <button 
+                    className="btn icon-btn" 
+                    style={{ padding: '4px', opacity: 0.7 }}
+                    onClick={(e) => handleDeleteSession(e, s.session_id)}
+                    title="Delete Session"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
         <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border-light)' }}>
@@ -203,7 +222,7 @@ export default function ChatPage() {
                 <div className="chat-bubble-content markdown-body">
                   <ReactMarkdown>{msg.content}</ReactMarkdown>
                 </div>
-                {msg.metadata && (
+                {msg.role === 'assistant' && msg.metadata && msg.metadata.total_steps != null && (
                   <div className="chat-bubble-meta">
                     <div className="flex-center gap-3 meta-stats">
                       <span className="flex-center gap-1"><Zap size={14} className="text-muted" /> {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
@@ -212,7 +231,10 @@ export default function ChatPage() {
                     </div>
                     {msg.metadata.sources && msg.metadata.sources.length > 0 && (
                       <div className="chat-sources-block">
-                        <strong>📚 Data Sources:</strong>
+                        <div className="chat-sources-header">
+                          <Database size={13} className="chat-sources-icon" />
+                          <span>Data Sources & Traceability</span>
+                        </div>
                         <div className="chat-sources-list">
                           {msg.metadata.sources.map((src, idx) => {
                             const isString = typeof src === 'string';
@@ -221,15 +243,20 @@ export default function ChatPage() {
                             const data = isString ? null : src.data;
                             
                             return (
-                              <details key={idx} className="chat-source-item">
-                                <summary className="chat-source-summary">{label}</summary>
+                              <details key={idx} className="chat-source-item" open>
+                                <summary className="chat-source-summary">
+                                  <span className="source-label-wrapper">
+                                    {src.type === 'graph' ? <Network size={12} className="source-type-icon" /> : src.type === 'vector' ? <Search size={12} className="source-type-icon" /> : <Database size={12} className="source-type-icon" />}
+                                    <span>{label}</span>
+                                  </span>
+                                </summary>
                                 <div className="chat-source-details">
                                   <p className="chat-source-explanation">{explanation}</p>
                                   {data && data.length > 0 && (
                                     <div className="chat-source-data">
                                       {data.map((d, i) => (
                                         <div key={i} className="chat-data-row">
-                                          {src.type === 'vector' ? `[${d.file}] ${d.snippet}` : d}
+                                          {src.type === 'vector' ? `[${d.file}] ${d.snippet}` : (typeof d === 'object' ? JSON.stringify(d) : String(d))}
                                         </div>
                                       ))}
                                     </div>
