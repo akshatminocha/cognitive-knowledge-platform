@@ -1,0 +1,69 @@
+name: fraud_detection
+version: "1.0.0"
+description: "Analyze financial transactions for anomalies, suspicious patterns, and potential fraud indicators."
+domain: fintech
+tags: [fraud, anomaly, fintech, transactions, risk]
+author: system
+
+system_prompt: |
+  You are a financial crime analyst working with the Cognitive Knowledge Platform.
+  Your job is to analyze transaction data and identify potential fraud indicators.
+
+  Analysis framework:
+  1. **Transaction Pattern Analysis** — Look for unusual amounts, frequencies, or timing
+  2. **Counterparty Risk** — Check if counterparties have previous fraud flags
+  3. **Velocity Checks** — Rapid succession of transactions from the same account
+  4. **Geographic Anomalies** — Transactions from unusual locations
+  5. **Risk Score** — Assign a risk score (Low/Medium/High/Critical)
+
+  Rules:
+  - Query the graph for transaction networks and entity relationships.
+  - Use tabular data for aggregate statistics and thresholds.
+  - Always explain your reasoning when flagging a transaction.
+  - Do NOT make accusations — frame findings as "indicators" or "anomalies."
+
+tools:
+  - graph_query
+  - sql_query
+  - semantic_search
+
+input_schema:
+  - name: account_id
+    type: string
+    required: false
+    description: "Specific account to analyze"
+  - name: transaction_id
+    type: string
+    required: false
+    description: "Specific transaction to analyze"
+  - name: time_window
+    type: string
+    required: false
+    default: "30d"
+    description: "Time window for analysis (e.g., '7d', '30d', '90d')"
+
+output_schema:
+  - name: risk_assessment
+    type: string
+    description: "Detailed risk assessment narrative"
+  - name: risk_level
+    type: string
+    description: "Overall risk level (Low/Medium/High/Critical)"
+  - name: indicators
+    type: "list[string]"
+    description: "List of specific fraud indicators found"
+
+guardrails:
+  pii_masking: strict
+  max_steps: 8
+  max_tokens: 3000
+  require_grounding: true
+
+examples:
+  - input:
+      account_id: "ACC-5821"
+      time_window: "7d"
+    output:
+      risk_assessment: "Account ACC-5821 shows 14 outbound transfers in the last 7 days totaling $247,000, compared to a 30-day average of 3 transactions ($12,000). Multiple transfers sent to newly created accounts."
+      risk_level: "High"
+      indicators: ["Transaction velocity 4.7x above baseline", "Multiple transfers to accounts < 30 days old", "Total amount 20x above monthly average"]

@@ -1,0 +1,69 @@
+name: data_ingestion
+version: "1.0.0"
+description: "Guide the user through data ingestion — validate uploaded files, extract entities, and confirm what was stored."
+domain: general
+tags: [ingestion, upload, validation, onboarding]
+author: system
+
+system_prompt: |
+  You are a data ingestion assistant for the Cognitive Knowledge Platform.
+  Your job is to help users upload and validate data files, extract entities
+  using the ontology schema, and confirm successful storage.
+
+  Workflow:
+  1. **Validate** — Check the uploaded file format and structure
+  2. **Preview** — Show the user what entities and relationships will be extracted
+  3. **Extract** — Run the ontology-guided extraction
+  4. **Store** — Save entities to Neo4j, embeddings to Qdrant, tabular to PostgreSQL
+  5. **Confirm** — Report what was stored and any issues encountered
+
+  Rules:
+  - Always preview extracted entities before storing.
+  - Report any rows/chunks that failed extraction.
+  - Provide a count of entities and relationships created.
+
+tools:
+  - graph_query
+  - semantic_search
+  - sql_query
+
+input_schema:
+  - name: file_path
+    type: string
+    required: true
+    description: "Path to the uploaded file"
+  - name: schema_name
+    type: string
+    required: false
+    default: "healthtech"
+    description: "The domain schema to use for extraction"
+
+output_schema:
+  - name: status
+    type: string
+    description: "Ingestion status (success/partial/failed)"
+  - name: entities_created
+    type: integer
+    description: "Number of entities extracted and stored"
+  - name: relationships_created
+    type: integer
+    description: "Number of relationships extracted and stored"
+  - name: issues
+    type: "list[string]"
+    description: "Any issues encountered during ingestion"
+
+guardrails:
+  pii_masking: strict
+  max_steps: 8
+  max_tokens: 2000
+  require_grounding: false
+
+examples:
+  - input:
+      file_path: "/uploads/patient_records.csv"
+      schema_name: "healthtech"
+    output:
+      status: "success"
+      entities_created: 42
+      relationships_created: 18
+      issues: []

@@ -1,0 +1,67 @@
+name: report_generation
+version: "1.0.0"
+description: "Generate structured analytical reports from knowledge graph data with tables, trends, and executive summaries."
+domain: general
+tags: [report, analysis, export, summary]
+author: system
+
+system_prompt: |
+  You are a report generation specialist for the Cognitive Knowledge Platform.
+  Your job is to produce structured, professional reports from the knowledge graph.
+
+  Report structure:
+  1. **Executive Summary** — 2-3 sentence overview of key findings
+  2. **Data Overview** — What data was queried, time range, scope
+  3. **Key Findings** — Bullet points of the most important insights
+  4. **Detailed Analysis** — Deep dive with supporting data
+  5. **Recommendations** — Actionable next steps based on findings
+
+  Rules:
+  - Use tables for structured data comparisons.
+  - Include specific numbers, percentages, and trends.
+  - Cite the data sources (which database and query was used).
+  - Format the report in clean Markdown.
+
+tools:
+  - graph_query
+  - sql_query
+  - semantic_search
+
+input_schema:
+  - name: topic
+    type: string
+    required: true
+    description: "The subject of the report (e.g., 'Q3 patient outcomes')"
+  - name: report_type
+    type: string
+    required: false
+    default: "analytical"
+    description: "Type of report (analytical, executive, compliance)"
+  - name: time_range
+    type: string
+    required: false
+    default: "last 30 days"
+    description: "Time range for the report data"
+
+output_schema:
+  - name: report
+    type: string
+    description: "The full Markdown report"
+  - name: data_sources
+    type: "list[string]"
+    description: "List of data sources and queries used"
+
+guardrails:
+  pii_masking: standard
+  max_steps: 10
+  max_tokens: 4096
+  require_grounding: true
+
+examples:
+  - input:
+      topic: "Patient medication adherence"
+      report_type: "analytical"
+      time_range: "last 90 days"
+    output:
+      report: "# Patient Medication Adherence Report\n\n## Executive Summary\nOverall medication adherence across 147 patients is 78.3%, down 2.1% from the previous quarter..."
+      data_sources: ["Neo4j: Patient-Medication relationships", "PostgreSQL: Pharmacy refill records"]

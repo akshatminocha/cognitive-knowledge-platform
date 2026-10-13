@@ -1,0 +1,101 @@
+const API_BASE = 'http://localhost:8000/api/v2';
+
+async function fetchJSON(url, options = {}) {
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
+}
+
+export async function queryAgent(query, sessionId = null, schema = 'healthtech', activeSkill = 'auto', model = 'gemini-2.5-flash') {
+  return fetchJSON(`${API_BASE}/query`, {
+    method: 'POST',
+    body: JSON.stringify({ query, session_id: sessionId, schema_name: schema, active_skill: activeSkill, model }),
+  });
+}
+
+export async function ingestFile(file, schema = 'healthtech', chunkSize = 512, overlap = 64) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}/ingest?schema_name=${schema}&chunk_size=${chunkSize}&chunk_overlap=${overlap}`, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getHealth() {
+  try { return await fetchJSON('http://localhost:8000/health'); }
+  catch { return { status: 'unreachable' }; }
+}
+
+export async function getSchemas() {
+  try { const data = await fetchJSON(`${API_BASE}/schemas`); return data.schemas || []; }
+  catch { return ['healthtech', 'fintech', 'edtech', 'enterprise_ops']; }
+}
+
+export async function getSkills() {
+  try { const data = await fetchJSON(`${API_BASE}/skills`); return data.skills || []; }
+  catch { return []; }
+}
+
+export async function getPrompts() {
+  try { const data = await fetchJSON(`${API_BASE}/prompts`); return data.prompts || []; }
+  catch { return []; }
+}
+
+export async function getDiagnostics() {
+  try { return await fetchJSON(`${API_BASE}/diagnostics`); }
+  catch { return {}; }
+}
+
+export async function createSkill(description, domain = 'general') {
+  return fetchJSON(`${API_BASE}/skills/create`, {
+    method: 'POST',
+    body: JSON.stringify({ description, domain }),
+  });
+}
+
+export async function createPrompt(description) {
+  return fetchJSON(`${API_BASE}/prompts/create`, {
+    method: 'POST',
+    body: JSON.stringify({ description }),
+  });
+}
+
+export async function listSessions() {
+  try {
+    const data = await fetchJSON(`${API_BASE}/sessions`);
+    return data.sessions || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getSession(sessionId) {
+  try {
+    const data = await fetchJSON(`${API_BASE}/sessions/${sessionId}`);
+    return data.messages || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteSession(sessionId) {
+  return fetchJSON(`${API_BASE}/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function exportUKA(sessionId) {
+  // Download the ZIP file directly
+  window.open(`${API_BASE}/sessions/${sessionId}/export?format=zip`, '_blank');
+}
+
+export async function getIngestedSources() {
+  try {
+    const data = await fetchJSON(`${API_BASE}/ingest/sources`);
+    return data.sources || [];
+  } catch {
+    return [];
+  }
+}
+

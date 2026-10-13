@@ -1,0 +1,191 @@
+# =============================================================================
+# Fintech Domain Schema
+# =============================================================================
+# Knowledge graph structure for financial services:
+# Customers, Accounts, Transactions, Merchants, Alerts, and KYC Records.
+# =============================================================================
+
+name: fintech
+version: "1.0.0"
+description: "Financial services domain schema for transaction monitoring, KYC, and fraud detection."
+
+entities:
+  - name: Customer
+    label: Customer
+    description: "A bank or fintech customer"
+    properties:
+      - name: customer_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "CUST-001"
+      - name: name
+        type: string
+        required: true
+        example: "Jane Smith"
+      - name: email
+        type: string
+        example: "jane@example.com"
+      - name: risk_score
+        type: float
+        description: "Customer risk score (0-100)"
+        example: "15.5"
+      - name: kyc_status
+        type: string
+        description: "verified, pending, flagged"
+        example: "verified"
+    embed_properties: ["name"]
+
+  - name: Account
+    label: Account
+    description: "A financial account (checking, savings, investment)"
+    properties:
+      - name: account_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "ACC-001"
+      - name: account_type
+        type: string
+        required: true
+        example: "checking"
+      - name: balance
+        type: float
+        example: "15000.00"
+      - name: currency
+        type: string
+        example: "USD"
+      - name: status
+        type: string
+        description: "active, frozen, closed"
+        example: "active"
+    embed_properties: ["account_type"]
+
+  - name: Transaction
+    label: Transaction
+    description: "A financial transaction"
+    properties:
+      - name: transaction_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "TXN-001"
+      - name: amount
+        type: float
+        required: true
+        example: "1500.00"
+      - name: currency
+        type: string
+        example: "USD"
+      - name: transaction_type
+        type: string
+        description: "debit, credit, transfer, payment"
+        example: "debit"
+      - name: timestamp
+        type: datetime
+        required: true
+        example: "2024-06-15T14:30:00Z"
+      - name: description
+        type: string
+        example: "Wire transfer to vendor"
+      - name: risk_flag
+        type: boolean
+        description: "Whether this transaction was flagged"
+        example: "false"
+    embed_properties: ["description", "transaction_type"]
+
+  - name: Merchant
+    label: Merchant
+    description: "A merchant or vendor in a transaction"
+    properties:
+      - name: merchant_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "MERCH-001"
+      - name: name
+        type: string
+        required: true
+        example: "Amazon"
+      - name: category
+        type: string
+        example: "E-commerce"
+      - name: country
+        type: string
+        example: "US"
+    embed_properties: ["name", "category"]
+
+  - name: Alert
+    label: Alert
+    description: "A fraud or compliance alert"
+    properties:
+      - name: alert_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "ALT-001"
+      - name: alert_type
+        type: string
+        required: true
+        description: "fraud, aml, compliance, unusual_activity"
+        example: "fraud"
+      - name: severity
+        type: string
+        description: "low, medium, high, critical"
+        example: "high"
+      - name: description
+        type: string
+        example: "Unusual transaction volume detected"
+      - name: status
+        type: string
+        description: "open, investigating, resolved, dismissed"
+        example: "open"
+      - name: created_at
+        type: datetime
+        example: "2024-06-15T14:35:00Z"
+    embed_properties: ["description", "alert_type"]
+
+relationships:
+  - name: OWNS
+    description: "Customer owns an account"
+    source: Customer
+    target: Account
+
+  - name: INITIATED
+    description: "Account initiated a transaction"
+    source: Account
+    target: Transaction
+
+  - name: RECEIVED
+    description: "Account received a transaction"
+    source: Transaction
+    target: Account
+
+  - name: PAID_TO
+    description: "Transaction was paid to a merchant"
+    source: Transaction
+    target: Merchant
+
+  - name: TRIGGERED
+    description: "Transaction triggered an alert"
+    source: Transaction
+    target: Alert
+
+  - name: ASSIGNED_TO
+    description: "Alert is assigned to a customer"
+    source: Alert
+    target: Customer
+
+extraction_rules:
+  - entity_type: Transaction
+    extraction_prompt: "Extract financial transactions: amount, type, timestamp, and description."
+    required_properties: ["transaction_id", "amount"]
+
+  - entity_type: Alert
+    extraction_prompt: "Extract fraud or compliance alerts: type, severity, and description."
+    required_properties: ["alert_type"]

@@ -1,0 +1,272 @@
+# =============================================================================
+# Healthtech Domain Schema — Default Demo Schema
+# =============================================================================
+# Defines the knowledge graph structure for healthcare applications:
+# Patients, Doctors, Diagnoses, Medications, Lab Results, and Visits.
+# =============================================================================
+
+name: healthtech
+version: "1.0.0"
+description: "Healthcare domain schema for patient records, clinical data, and treatment tracking."
+
+# --- Entity Types (Neo4j Node Labels) ---
+entities:
+  - name: Patient
+    label: Patient
+    description: "A patient in the healthcare system"
+    properties:
+      - name: patient_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        description: "Unique patient identifier"
+        example: "PAT-001"
+      - name: name
+        type: string
+        required: true
+        description: "Patient full name"
+        example: "John Doe"
+      - name: date_of_birth
+        type: date
+        description: "Patient date of birth"
+        example: "1985-03-15"
+      - name: gender
+        type: string
+        description: "Patient gender"
+        example: "Male"
+      - name: blood_type
+        type: string
+        description: "Blood type"
+        example: "O+"
+    embed_properties: ["name"]
+
+  - name: Doctor
+    label: Doctor
+    description: "A healthcare provider or physician"
+    properties:
+      - name: doctor_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "DOC-001"
+      - name: name
+        type: string
+        required: true
+        example: "Dr. Sarah Smith"
+      - name: specialization
+        type: string
+        required: true
+        example: "Cardiology"
+      - name: department
+        type: string
+        example: "Internal Medicine"
+    embed_properties: ["name", "specialization"]
+
+  - name: Diagnosis
+    label: Diagnosis
+    description: "A medical diagnosis assigned to a patient"
+    properties:
+      - name: diagnosis_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "DX-001"
+      - name: icd_code
+        type: string
+        required: true
+        indexed: true
+        description: "ICD-10/11 diagnosis code"
+        example: "E11.9"
+      - name: name
+        type: string
+        required: true
+        example: "Type 2 Diabetes Mellitus"
+      - name: severity
+        type: string
+        description: "Severity level"
+        example: "moderate"
+      - name: date_diagnosed
+        type: date
+        example: "2024-01-15"
+    embed_properties: ["name", "icd_code"]
+
+  - name: Medication
+    label: Medication
+    description: "A medication prescribed to a patient"
+    properties:
+      - name: medication_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "MED-001"
+      - name: name
+        type: string
+        required: true
+        example: "Metformin"
+      - name: dosage
+        type: string
+        example: "500mg"
+      - name: frequency
+        type: string
+        example: "twice daily"
+      - name: route
+        type: string
+        description: "Administration route"
+        example: "oral"
+    embed_properties: ["name", "dosage"]
+
+  - name: LabResult
+    label: LabResult
+    description: "A laboratory test result"
+    properties:
+      - name: lab_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "LAB-001"
+      - name: test_name
+        type: string
+        required: true
+        example: "HbA1c"
+      - name: value
+        type: string
+        required: true
+        example: "7.2"
+      - name: unit
+        type: string
+        example: "%"
+      - name: reference_range
+        type: string
+        example: "4.0-5.6"
+      - name: test_date
+        type: date
+        example: "2024-06-01"
+      - name: status
+        type: string
+        description: "Normal, Abnormal, Critical"
+        example: "Abnormal"
+    embed_properties: ["test_name", "value", "unit"]
+
+  - name: Visit
+    label: Visit
+    description: "A clinical visit or encounter"
+    properties:
+      - name: visit_id
+        type: string
+        required: true
+        unique: true
+        indexed: true
+        example: "VIS-001"
+      - name: visit_date
+        type: date
+        required: true
+        example: "2024-06-15"
+      - name: visit_type
+        type: string
+        description: "Outpatient, Inpatient, Emergency"
+        example: "Outpatient"
+      - name: chief_complaint
+        type: string
+        example: "Follow-up for diabetes management"
+      - name: notes
+        type: string
+        description: "Clinical notes from the visit"
+    embed_properties: ["chief_complaint", "notes"]
+
+# --- Relationship Types (Neo4j Edge Types) ---
+relationships:
+  - name: HAS_DIAGNOSIS
+    description: "Patient has been diagnosed with a condition"
+    source: Patient
+    target: Diagnosis
+    properties:
+      - name: diagnosed_date
+        type: date
+      - name: status
+        type: string
+        description: "active, resolved, chronic"
+
+  - name: PRESCRIBED
+    description: "Doctor prescribed a medication for a patient"
+    source: Doctor
+    target: Medication
+    properties:
+      - name: prescribed_date
+        type: date
+      - name: duration_days
+        type: integer
+
+  - name: TAKES
+    description: "Patient takes a medication"
+    source: Patient
+    target: Medication
+    properties:
+      - name: start_date
+        type: date
+      - name: end_date
+        type: date
+      - name: adherence
+        type: string
+        description: "good, moderate, poor"
+
+  - name: HAS_LAB_RESULT
+    description: "Patient has a laboratory test result"
+    source: Patient
+    target: LabResult
+
+  - name: ORDERED_BY
+    description: "Lab result was ordered by a doctor"
+    source: LabResult
+    target: Doctor
+
+  - name: ATTENDED
+    description: "Patient attended a clinical visit"
+    source: Patient
+    target: Visit
+
+  - name: CONDUCTED_BY
+    description: "Visit was conducted by a doctor"
+    source: Visit
+    target: Doctor
+
+  - name: TREATS
+    description: "Medication treats a diagnosis"
+    source: Medication
+    target: Diagnosis
+
+# --- Extraction Rules ---
+extraction_rules:
+  - entity_type: Patient
+    extraction_prompt: "Extract patient demographics: ID, name, DOB, gender, blood type."
+    required_properties: ["patient_id", "name"]
+
+  - entity_type: Diagnosis
+    extraction_prompt: "Extract medical diagnoses with ICD codes, severity, and date."
+    required_properties: ["icd_code", "name"]
+
+  - entity_type: Medication
+    extraction_prompt: "Extract medications with dosage, frequency, and route."
+    required_properties: ["name"]
+
+# --- Tabular Mappings (CSV → Graph) ---
+tabular_mappings:
+  - source_column: "patient_id"
+    target_entity: Patient
+    target_property: patient_id
+
+  - source_column: "patient_name"
+    target_entity: Patient
+    target_property: name
+
+  - source_column: "diagnosis_code"
+    target_entity: Diagnosis
+    target_property: icd_code
+
+  - source_column: "medication_name"
+    target_entity: Medication
+    target_property: name

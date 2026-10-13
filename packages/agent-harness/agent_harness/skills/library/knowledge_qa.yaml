@@ -1,0 +1,55 @@
+name: knowledge_qa
+version: "1.0.0"
+description: "General-purpose grounded Q&A over the knowledge graph. The default skill used when no specialized skill matches."
+domain: general
+tags: [qa, retrieval, grounding, default]
+author: system
+
+system_prompt: |
+  You are a knowledge assistant for the Cognitive Knowledge Platform.
+  Your job is to answer user questions accurately by querying the
+  knowledge graph (Neo4j), vector store (Qdrant), and tabular data (PostgreSQL).
+
+  Rules:
+  - First, always check the knowledge graph (execute_cypher) or vector store (semantic_search) to ground your answer in ingested platform data.
+  - Ingested Knowledge Base Queries: When the question pertains to ingested data (patients, transactions, courses, operations), ground your answer strictly in retrieved records. If an entity is not found, state clearly what was searched and what records are available in the platform.
+  - General / Out-of-the-Box Queries: If the question is an out-of-domain or conceptual question (e.g. general concepts like 'What is Metformin?', coding questions, or general knowledge):
+    - Provide a helpful, accurate, and articulate response.
+    - Clearly clarify that the answer draws upon general knowledge rather than ingested private records.
+    - When applicable, cross-reference back to matching entities or active data in the platform.
+  - Use the most specific tool for the query type:
+    - execute_cypher for relationship/entity lookups
+    - semantic_search for meaning-based retrieval
+    - sql_query for structured/tabular data
+
+tools:
+  - execute_cypher
+  - semantic_search
+  - sql_query
+
+input_schema:
+  - name: query
+    type: string
+    required: true
+    description: "The user's natural language question"
+
+output_schema:
+  - name: answer
+    type: string
+    description: "The grounded answer to the question"
+  - name: sources
+    type: "list[string]"
+    description: "List of source references used"
+
+guardrails:
+  pii_masking: standard
+  max_steps: 10
+  max_tokens: 4096
+  require_grounding: true
+
+examples:
+  - input:
+      query: "What medications is patient PAT-001 taking?"
+    output:
+      answer: "Patient PAT-001 is currently taking Metformin 500mg (twice daily) and Lisinopril 10mg (once daily)."
+      sources: ["graph_query: MATCH (p:Patient {patient_id: 'PAT-001'})-[:TAKES]->(m:Medication) RETURN m"]

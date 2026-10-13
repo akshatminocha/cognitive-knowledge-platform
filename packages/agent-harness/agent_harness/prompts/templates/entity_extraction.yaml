@@ -1,0 +1,75 @@
+name: entity_extraction
+version: "1.0.0"
+description: "Schema-guided entity and relationship extraction from unstructured text. Replaces the hardcoded prompt in extractor.py."
+tags: [extraction, ontology, ingestion, core]
+author: system
+
+template: |
+  Extract entities and relationships from the following text according to this schema.
+
+  Entity Types:
+  {% for entity in entities %}
+  "{{ entity.name }}": {{ entity.description }}
+    Properties:
+  {% for prop in entity.properties %}
+      - "{{ prop.name }}": {{ prop.type }}{% if prop.required %} (REQUIRED){% endif %}{% if prop.example %} e.g. "{{ prop.example }}"{% endif %}
+
+  {% endfor %}
+  {% endfor %}
+
+  Relationship Types:
+  {% for rel in relationships %}
+  "{{ rel.name }}": ({{ rel.source }}) -> ({{ rel.target }}) — {{ rel.description }}
+  {% endfor %}
+
+  {% if extraction_hints %}
+  Extraction hints:
+  {% for hint in extraction_hints %}
+    - {{ hint.entity_type }}: {{ hint.prompt }}
+  {% endfor %}
+  {% endif %}
+
+  Respond with valid JSON in exactly this format:
+  {
+    "entities": [
+      {
+        "entity_type": "<EntityTypeName>",
+        "properties": { ... }
+      }
+    ],
+    "relationships": [
+      {
+        "relationship_type": "<RELATIONSHIP_NAME>",
+        "source": "<identifier of source entity>",
+        "target": "<identifier of target entity>",
+        "properties": { ... }
+      }
+    ]
+  }
+
+  If no entities or relationships are found, return empty arrays.
+  Only extract entities and relationships defined in the schema above.
+
+  Text to extract from:
+  ---
+  {{ text }}
+  ---
+
+variables:
+  - name: entities
+    type: "list[string]"
+    required: true
+    description: "List of EntityDef objects from the domain schema"
+  - name: relationships
+    type: "list[string]"
+    required: true
+    description: "List of RelationshipDef objects from the domain schema"
+  - name: extraction_hints
+    type: "list[string]"
+    required: false
+    default: []
+    description: "Optional extraction rules/hints from the schema"
+  - name: text
+    type: string
+    required: true
+    description: "The text chunk to extract entities from"
