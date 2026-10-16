@@ -29,6 +29,7 @@ from ai_gateway.budget import BudgetExhausted, BudgetManager
 from ai_gateway.cache import ResponseCache
 from ai_gateway.config import DEFAULT_MODELS, GatewayConfig, ModelConfig
 from ai_gateway.rate_limiter import RateLimitExceeded, RateLimiter
+from ai_gateway.router import ModelCascadeRouter, RoutingDecision
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +87,15 @@ class GatewayClient:
             ttl_seconds=self.config.cache.ttl_seconds,
             max_entries=self.config.cache.max_entries,
         )
+        self._router = ModelCascadeRouter()
 
         # Set API keys from config into environment (LiteLLM reads from env)
         self._configure_api_keys()
+
+    @property
+    def router(self) -> ModelCascadeRouter:
+        """Smart Model Cascade Router instance."""
+        return self._router
 
     def _configure_api_keys(self) -> None:
         """Set provider API keys into environment variables for LiteLLM."""
@@ -142,7 +149,24 @@ class GatewayClient:
             BudgetExhausted: If cost budget is exhausted.
             AllModelsFailed: If all models in fallback chain fail.
         """
-        target_model = self._resolve_model(model)
+        # Smart Model Cascade resolution (AI Economics)
+        routing_decision: Optional[RoutingDecision] = None
+        user_query = ""
+        for msg in reversed(messages or []):
+            if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content"):
+                user_query = str(msg["content"])
+                break
+
+        is_auto_mode = bool(model and model.lower() in ("auto", "auto (ai economics)", "smart"))
+        if is_auto_mode:
+            routing_decision = self._router.route_query(user_query, requested_model="auto")
+            target_model = routing_decision.selected_model
+        elif model:
+            # Check provider availability & cascade gracefully if needed
+            routing_decision = self._router.route_query(user_query, requested_model=model)
+            target_model = routing_decision.selected_model
+        else:
+            target_model = self._resolve_model(model)
 
         # 1. Pre-flight: Rate limit check
         self._rate_limiter.check_request()
@@ -210,7 +234,14 @@ class GatewayClient:
                 response["_gateway"] = {
                     "model_used": model_id,
                     "cache_hit": False,
-                    "fallback_used": model_id != target_model,
+                    "fallback_used": model_id != target_model or (routing_decision is not None and routing_decision.fallback_applied),
+                    "smart_routed": is_auto_mode,
+                    "complexity_tier": routing_decision.tier.value if routing_decision else None,
+                    "intent": routing_decision.intent.value if routing_decision else None,
+                    "bypass_graph_tools": routing_decision.bypass_graph_tools if routing_decision else False,
+                    "estimated_cost_tier": routing_decision.estimated_cost_tier if routing_decision else None,
+                    "routing_reason": routing_decision.reason if routing_decision else None,
+                    "cascade_reason": routing_decision.fallback_reason if routing_decision else None,
                 }
 
                 return response

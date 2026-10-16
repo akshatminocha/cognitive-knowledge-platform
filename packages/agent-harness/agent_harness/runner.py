@@ -49,6 +49,9 @@ class RunnerConfig:
     active_schema: str = "healthtech"
     active_model: str = "gemini-2.5-flash"
     active_skill: Optional[Skill] = None
+    bypass_graph_tools: bool = False
+    intent: Optional[str] = None
+    complexity_tier: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +86,10 @@ class RunResult:
     model_used: str = ""
     was_reflected: bool = False
     error: Optional[str] = None
+    intent: Optional[str] = None
+    complexity_tier: Optional[str] = None
+    smart_routed: bool = False
+    routing_reason: Optional[str] = None
 
 
 class AgentRunner:
@@ -181,11 +188,20 @@ class AgentRunner:
             from mcp_servers.graph_server import execute_cypher
             from mcp_servers.retrieval_server import semantic_search
             
+            # Intent Gating: if bypass_graph_tools is True (open-domain tasks),
+            # execute without graph tools to save steps and avoid false 'no data' errors
+            tools = []
+            if not self.config.bypass_graph_tools:
+                tools = [execute_cypher, semantic_search]
+            else:
+                logger.info("Intent Gate: Open-domain query detected; bypassing graph RAG tools")
+                instruction += "\nProvide a direct, helpful, and comprehensive answer without querying domain databases."
+
             agent = Agent(
                 name="ckp_agent",
-                model="gemini-2.5-flash",
+                model=self.config.active_model or "gemini-2.5-flash",
                 instruction=instruction,
-                tools=[execute_cypher, semantic_search]
+                tools=tools
             )
             runner = InMemoryRunner(agent=agent)
             events = await runner.run_debug(query, session_id=session_id or "default_session", quiet=True)
@@ -244,6 +260,8 @@ class AgentRunner:
         result.steps.append(step)
         result.final_response = response_text
         result.total_steps = len(result.steps)
+        result.intent = self.config.intent
+        result.complexity_tier = self.config.complexity_tier
 
         # 5. Optional reflection
         if self.config.enable_reflection and result.final_response:

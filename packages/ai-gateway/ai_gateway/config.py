@@ -122,16 +122,72 @@ class GatewayConfig(BaseSettings):
     model_config = {"env_prefix": "GATEWAY_", "env_file": ".env", "extra": "ignore"}
 
 
-# ---- Pre-built model registry for common free/open models ----
+# ---- Pre-built model registry for common free/open/commercial models ----
 
 DEFAULT_MODELS: dict[str, ModelConfig] = {
     "gemini/gemini-2.5-flash": ModelConfig(
         model_id="gemini/gemini-2.5-flash",
         provider=ModelProvider.GEMINI,
         api_key_env="GOOGLE_API_KEY",
-        cost_per_input_token=0.0,
-        cost_per_output_token=0.0,
+        cost_per_input_token=0.000000075,
+        cost_per_output_token=0.00000030,
         max_tokens=8192,
+    ),
+    "gemini-2.5-flash": ModelConfig(
+        model_id="gemini-2.5-flash",
+        provider=ModelProvider.GEMINI,
+        api_key_env="GOOGLE_API_KEY",
+        cost_per_input_token=0.000000075,
+        cost_per_output_token=0.00000030,
+        max_tokens=8192,
+    ),
+    "gemini/gemini-2.5-pro": ModelConfig(
+        model_id="gemini/gemini-2.5-pro",
+        provider=ModelProvider.GEMINI,
+        api_key_env="GOOGLE_API_KEY",
+        cost_per_input_token=0.00000125,
+        cost_per_output_token=0.00000500,
+        max_tokens=8192,
+    ),
+    "gemini-2.5-pro": ModelConfig(
+        model_id="gemini-2.5-pro",
+        provider=ModelProvider.GEMINI,
+        api_key_env="GOOGLE_API_KEY",
+        cost_per_input_token=0.00000125,
+        cost_per_output_token=0.00000500,
+        max_tokens=8192,
+    ),
+    "gpt-4o-mini": ModelConfig(
+        model_id="gpt-4o-mini",
+        provider=ModelProvider.OPENAI,
+        api_key_env="OPENAI_API_KEY",
+        cost_per_input_token=0.00000015,
+        cost_per_output_token=0.00000060,
+        max_tokens=4096,
+    ),
+    "gpt-4o": ModelConfig(
+        model_id="gpt-4o",
+        provider=ModelProvider.OPENAI,
+        api_key_env="OPENAI_API_KEY",
+        cost_per_input_token=0.00000250,
+        cost_per_output_token=0.00001000,
+        max_tokens=4096,
+    ),
+    "claude-3-5-sonnet": ModelConfig(
+        model_id="claude-3-5-sonnet",
+        provider=ModelProvider.ANTHROPIC,
+        api_key_env="ANTHROPIC_API_KEY",
+        cost_per_input_token=0.00000300,
+        cost_per_output_token=0.00001500,
+        max_tokens=4096,
+    ),
+    "anthropic/claude-3-5-sonnet-20241022": ModelConfig(
+        model_id="anthropic/claude-3-5-sonnet-20241022",
+        provider=ModelProvider.ANTHROPIC,
+        api_key_env="ANTHROPIC_API_KEY",
+        cost_per_input_token=0.00000300,
+        cost_per_output_token=0.00001500,
+        max_tokens=4096,
     ),
     "ollama/llama3.2": ModelConfig(
         model_id="ollama/llama3.2",

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network, Database, Layers } from 'lucide-react';
+import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network, Database, Layers, Sparkles, ArrowRightLeft, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { queryAgent, getSkills, listSessions, getSession, deleteSession, exportUKA } from '../api/client';
 import './ChatPage.css';
@@ -13,7 +13,7 @@ export default function ChatPage() {
   const [sessionId, setSessionId] = useState(null);
   const messagesEndRef = useRef(null);
 
-  const [activeModel, setActiveModel] = useState('gemini-2.5-flash');
+  const [activeModel, setActiveModel] = useState('auto');
   const [sessions, setSessions] = useState([]);
 
   useEffect(() => { 
@@ -77,6 +77,13 @@ export default function ChatPage() {
           duration_ms: result.duration_ms,
           tools_used: result.tools_used || [],
           sources: result.sources || [],
+          smart_routed: result.smart_routed,
+          complexity_tier: result.complexity_tier,
+          intent: result.intent,
+          estimated_cost_tier: result.estimated_cost_tier,
+          routing_reason: result.routing_reason,
+          cascade_fallback: result.cascade_fallback,
+          cascade_reason: result.cascade_reason,
         },
         ts: Date.now(),
       };
@@ -184,6 +191,7 @@ export default function ChatPage() {
               ))}
             </select>
             <select value={activeModel} onChange={e => setActiveModel(e.target.value)} className="skill-select" title="Swap Model">
+              <option value="auto">Auto (AI Economics)</option>
               <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
               <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
               <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
@@ -224,10 +232,33 @@ export default function ChatPage() {
                 </div>
                 {msg.role === 'assistant' && msg.metadata && msg.metadata.total_steps != null && (
                   <div className="chat-bubble-meta">
-                    <div className="flex-center gap-3 meta-stats">
+                    <div className="flex-center gap-3 meta-stats" style={{ flexWrap: 'wrap' }}>
                       <span className="flex-center gap-1"><Zap size={14} className="text-muted" /> {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
                       <span className="flex-center gap-1"><Clock size={14} className="text-muted" /> {Math.round(msg.metadata.duration_ms)}ms</span>
                       <span className="flex-center gap-1"><Cpu size={14} className="text-muted" /> {msg.metadata.model_used}</span>
+                      {msg.metadata.smart_routed && (
+                        <span className="smart-route-badge" title={msg.metadata.routing_reason || "Routed by AI Economics"}>
+                          <Sparkles size={12} className="badge-icon" /> Auto ({msg.metadata.complexity_tier ? msg.metadata.complexity_tier.replace('_', ' ').toUpperCase() : 'SMART'})
+                        </span>
+                      )}
+                      {msg.metadata.cascade_fallback && (
+                        <span className="cascade-fallback-badge" title={msg.metadata.cascade_reason || "Provider key unavailable; cascaded gracefully"}>
+                          <ArrowRightLeft size={12} className="badge-icon" /> BYOK Cascaded
+                        </span>
+                      )}
+                      {msg.metadata.intent && (
+                        <span className="intent-badge">
+                          {msg.metadata.intent === 'open_domain' ? (
+                            <>
+                              <Globe size={12} className="badge-icon" /> Open-Domain
+                            </>
+                          ) : (
+                            <>
+                              <Network size={12} className="badge-icon" /> Graph RAG
+                            </>
+                          )}
+                        </span>
+                      )}
                     </div>
                     {msg.metadata.sources && msg.metadata.sources.length > 0 && (
                       <div className="chat-sources-block">

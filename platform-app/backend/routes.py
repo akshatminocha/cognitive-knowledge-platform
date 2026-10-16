@@ -54,6 +54,16 @@ class QueryResponse(BaseModel):
     pii_entities_masked: int
     tools_used: list[str] = []
     sources: list[dict] = []
+    # Smart Model Cascade Router (AI Economics) fields
+    smart_routed: bool = False
+    complexity_tier: Optional[str] = None
+    intent: Optional[str] = None
+    estimated_cost_tier: Optional[str] = None
+    routing_reason: Optional[str] = None
+    cascade_fallback: bool = False
+    cascade_reason: Optional[str] = None
+
+
 class IngestionRequest(BaseModel):
     """Ingestion configuration for uploaded files."""
 
@@ -109,10 +119,23 @@ async def query_agent(request_body: QueryRequest, request: Request):
     registry = request.app.state.skill_registry
     gateway = request.app.state.gateway
 
+    # 1. Smart Model Cascade Routing & Intent Gating (AI Economics)
+    routing_decision = gateway.router.route_query(
+        request_body.query,
+        requested_model=request_body.model,
+    )
+    runner.config.active_model = routing_decision.selected_model
+    runner.config.bypass_graph_tools = routing_decision.bypass_graph_tools
+    runner.config.intent = routing_decision.intent.value
+    runner.config.complexity_tier = routing_decision.tier.value
+
     skill_name = request_body.active_skill
     
-    # Auto-routing if skill is "auto"
-    if not skill_name or skill_name == "auto":
+    # If open-domain intent detected, bypass domain-specific skill lookup
+    if routing_decision.bypass_graph_tools:
+        skill_name = "general_assistant"
+    elif not skill_name or skill_name == "auto":
+        # Auto-routing if skill is "auto"
         skills = registry.list_all()
         skill_descriptions = [f"- {s['name']}: {s.get('description', '')}" for s in skills]
         sys_prompt = "You are a router. Return ONLY the exact name of the best skill for the query. If none fit, return 'knowledge_qa'."
@@ -124,7 +147,7 @@ async def query_agent(request_body: QueryRequest, request: Request):
                     {"role": "system", "content": sys_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                model=request_body.model
+                model=routing_decision.selected_model
             )
             skill_name = res["choices"][0]["message"]["content"].strip()
             # fallback if hallucinates
@@ -134,13 +157,18 @@ async def query_agent(request_body: QueryRequest, request: Request):
             logger.warning(f"Auto-routing failed, fallback to knowledge_qa: {e}")
             skill_name = "knowledge_qa"
 
-    logger.info(f"Executing query with skill: {skill_name}")
+    logger.info(
+        f"Executing query with skill: {skill_name} | model: {routing_decision.selected_model} "
+        f"| tier: {routing_decision.tier.value} | intent: {routing_decision.intent.value}"
+    )
     
     # Apply skill to runner config
     try:
-        if skill_name:
+        if skill_name and skill_name != "general_assistant":
             registry.load_directory()
             runner.config.active_skill = registry.get(skill_name)
+        else:
+            runner.config.active_skill = None
     except Exception:
         runner.config.active_skill = None
 
@@ -211,6 +239,7 @@ async def query_agent(request_body: QueryRequest, request: Request):
                         
     ctx = getattr(request.app.state, "context_engine", None)
     tools_used_list = [step.tool_name for step in result.steps if step.tool_name]
+    final_model = routing_decision.selected_model
     if ctx:
         ctx.update_last_message_metadata(
             active_sid,
@@ -219,20 +248,31 @@ async def query_agent(request_body: QueryRequest, request: Request):
                 "tools_used": tools_used_list,
                 "total_steps": result.total_steps,
                 "duration_ms": result.total_duration_ms,
-                "model_used": request_body.model or "gemini-2.5-flash",
+                "model_used": final_model,
+                "smart_routed": bool(request_body.model and request_body.model.lower() in ("auto", "auto (ai economics)", "smart")),
+                "complexity_tier": routing_decision.tier.value,
+                "intent": routing_decision.intent.value,
+                "routing_reason": routing_decision.reason,
             }
         )
 
     return QueryResponse(
         response=result.final_response or "No answer returned.",
         session_id=active_sid,
-        model_used=request_body.model or "gemini-2.5-flash",
+        model_used=final_model,
         total_steps=result.total_steps,
         duration_ms=result.total_duration_ms,
-        groundedness_score=0.95, # Mocked guardrail for now
+        groundedness_score=0.95,  # Mocked guardrail for now
         pii_entities_masked=0,
         tools_used=tools_used_list,
-        sources=list(unique_sources)
+        sources=list(unique_sources),
+        smart_routed=bool(request_body.model and request_body.model.lower() in ("auto", "auto (ai economics)", "smart")),
+        complexity_tier=routing_decision.tier.value,
+        intent=routing_decision.intent.value,
+        estimated_cost_tier=routing_decision.estimated_cost_tier,
+        routing_reason=routing_decision.reason,
+        cascade_fallback=routing_decision.fallback_applied,
+        cascade_reason=routing_decision.fallback_reason,
     )
 
 
