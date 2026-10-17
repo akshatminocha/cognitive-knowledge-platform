@@ -99,3 +99,19 @@ export async function getIngestedSources() {
   }
 }
 
+export async function getMonitoringLogs(limit = 50, offset = 0, model = '', smartRouted = null, search = '') {
+  let url = `${API_BASE}/monitoring/logs?limit=${limit}&offset=${offset}`;
+  if (model) url += `&model=${encodeURIComponent(model)}`;
+  if (smartRouted !== null && smartRouted !== undefined && smartRouted !== '') url += `&smart_routed=${smartRouted}`;
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+  return fetchJSON(url);
+}
+
+export async function getMonitoringSummary() {
+  return fetchJSON(`${API_BASE}/monitoring/summary`);
+}
+
+export function exportMonitoring(format = 'csv') {
+  window.open(`${API_BASE}/monitoring/export?format=${format}`, '_blank');
+}
+

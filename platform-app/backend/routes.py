@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from agent_harness.skills.skill_builder_agent import SkillBuilderAgent
 from agent_harness.prompts.prompt_builder_agent import PromptBuilderAgent
 from agent_harness.uka_export import UKAExporter
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 import tempfile
 from pathlib import Path
 
@@ -62,6 +62,7 @@ class QueryResponse(BaseModel):
     routing_reason: Optional[str] = None
     cascade_fallback: bool = False
     cascade_reason: Optional[str] = None
+    mechanic_repairs: int = 0
 
 
 class IngestionRequest(BaseModel):
@@ -208,13 +209,17 @@ async def query_agent(request_body: QueryRequest, request: Request):
             label_str = ", ".join(labels)
             key = f"graph_{label_str}"
             
+            is_repaired = getattr(step, "mechanic_repaired", False)
             if key not in source_map:
                 source_map[key] = {
                     "type": "graph",
                     "label": f"Graph: {label_str}",
                     "explanation": f"Cypher query executed on Neo4j matching {label_str}.",
-                    "data": []
+                    "data": [],
+                    "mechanic_repaired": is_repaired,
                 }
+            if is_repaired:
+                source_map[key]["mechanic_repaired"] = True
             
             if cypher_query:
                 source_map[key]["data"].append(f"Query: {cypher_query[:120]}...")
@@ -256,6 +261,34 @@ async def query_agent(request_body: QueryRequest, request: Request):
             }
         )
 
+    # Record telemetry for query
+    try:
+        in_toks = max(10, len(request_body.query.split()) * 2)
+        out_toks = max(10, len((result.final_response or "").split()) * 2)
+        in_c, out_c, tot_c = gateway.telemetry.calculate_costs(final_model, in_toks, out_toks)
+        from ai_gateway.telemetry import AuditLogEntry
+        gateway.telemetry.record_call(AuditLogEntry(
+            session_id=active_sid,
+            prompt_preview=request_body.query[:200],
+            model_name=final_model,
+            provider="gemini" if "gemini" in final_model.lower() else ("anthropic" if "claude" in final_model.lower() else "openai"),
+            is_smart_routed=bool(request_body.model and request_body.model.lower() in ("auto", "auto (ai economics)", "smart")),
+            complexity_tier=routing_decision.tier.value,
+            intent=routing_decision.intent.value,
+            input_tokens=in_toks,
+            output_tokens=out_toks,
+            input_cost_usd=in_c,
+            output_cost_usd=out_c,
+            total_cost_usd=tot_c,
+            duration_ms=result.total_duration_ms,
+            status="fallback" if routing_decision.fallback_applied else ("error" if result.error else "success"),
+            tools_called=tools_used_list,
+            routing_reason=routing_decision.reason,
+            cascade_reason=routing_decision.fallback_reason,
+        ))
+    except Exception as tel_e:
+        logger.warning(f"Failed to record telemetry for query: {tel_e}")
+
     return QueryResponse(
         response=result.final_response or "No answer returned.",
         session_id=active_sid,
@@ -273,6 +306,7 @@ async def query_agent(request_body: QueryRequest, request: Request):
         routing_reason=routing_decision.reason,
         cascade_fallback=routing_decision.fallback_applied,
         cascade_reason=routing_decision.fallback_reason,
+        mechanic_repairs=getattr(result, "mechanic_repairs", 0),
     )
 
 
@@ -620,4 +654,65 @@ async def create_prompt(create_request: PromptCreateRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Monitoring & Observability Endpoints (AI Economics)
+# ---------------------------------------------------------------------------
+@router.get("/monitoring/logs")
+async def get_monitoring_logs(
+    request: Request,
+    limit: int = 50,
+    offset: int = 0,
+    model: Optional[str] = None,
+    smart_routed: Optional[bool] = None,
+    search: Optional[str] = None,
+):
+    """
+    Get paginated, filterable LLM audit telemetry logs.
+    """
+    gateway = request.app.state.gateway
+    return gateway.telemetry.get_logs(
+        limit=limit,
+        offset=offset,
+        model=model,
+        smart_routed=smart_routed,
+        search=search,
+    )
+
+
+@router.get("/monitoring/summary")
+async def get_monitoring_summary(request: Request):
+    """
+    Get aggregated observability KPIs, spend analytics, and AI Economics savings.
+    """
+    gateway = request.app.state.gateway
+    return gateway.telemetry.get_summary()
+
+
+@router.get("/monitoring/export")
+async def export_monitoring_logs(
+    request: Request,
+    format: str = "csv",
+):
+    """
+    Export audit logs in CSV or Excel XML format for finance and compliance audits.
+    """
+    gateway = request.app.state.gateway
+    fmt = format.lower().strip()
+
+    if fmt in ("excel", "xlsx", "xls"):
+        content = gateway.telemetry.export_excel_xml()
+        return Response(
+            content=content,
+            media_type="application/vnd.ms-excel",
+            headers={"Content-Disposition": "attachment; filename=llm_audit_logs.xls"},
+        )
+    else:
+        content = gateway.telemetry.export_csv()
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=llm_audit_logs.csv"},
+        )
 
