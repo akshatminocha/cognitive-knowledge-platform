@@ -81,6 +81,8 @@ mcp = FastMCP(
 )
 
 
+from mcp_servers.mechanic import get_mechanic
+
 # ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------
@@ -89,11 +91,13 @@ async def execute_sql(
     query: str,
     params: list[Any] | None = None,
     limit: int = 100,
+    auto_repair: bool = True,
 ) -> list[dict]:
     """
     Execute a read-only SQL query against PostgreSQL.
 
     The query is validated by the guardrails AST checker before execution.
+    If database execution errors occur, The Mechanic intercepts and repairs the query.
     Only SELECT, WITH, EXPLAIN, and DESCRIBE statements are allowed.
 
     A LIMIT clause is automatically appended if not present.
@@ -102,6 +106,7 @@ async def execute_sql(
         query: A SQL query string (read-only).
         params: Optional list of query parameters for parameterized queries.
         limit: Maximum rows to return (default 100). Overridden if LIMIT is in query.
+        auto_repair: Whether to enable self-correction via The Mechanic.
 
     Returns:
         A list of result rows as dictionaries.
@@ -118,14 +123,28 @@ async def execute_sql(
 
     logger.info(f"Executing SQL: {query[:100]}...")
 
-    async with pool.acquire() as conn:
-        if params:
-            rows = await conn.fetch(query, *params)
-        else:
-            rows = await conn.fetch(query)
+    async def _run_sql(q: str, p: Any):
+        async with pool.acquire() as conn:
+            if p:
+                rows = await conn.fetch(q, *p)
+            else:
+                rows = await conn.fetch(q)
+        return [dict(row) for row in rows]
 
-    records = [dict(row) for row in rows]
-    logger.info(f"Returned {len(records)} rows")
+    if not auto_repair:
+        records = await _run_sql(query, params)
+        logger.info(f"Returned {len(records)} rows")
+        return records
+
+    mechanic = get_mechanic()
+    records, meta = await mechanic.intercept_and_execute(
+        executor_fn=_run_sql,
+        query=query,
+        params=params,
+        query_type="sql",
+    )
+    repaired_flag = meta.get("was_repaired", False)
+    logger.info(f"Returned {len(records)} rows (Mechanic repaired: {repaired_flag})")
     return records
 
 

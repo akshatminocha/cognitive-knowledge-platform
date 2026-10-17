@@ -77,20 +77,29 @@ async def _run_cypher(driver: AsyncDriver, query: str, params: dict | None = Non
         return records
 
 
+from mcp_servers.mechanic import get_mechanic
+
 # ---------------------------------------------------------------------------
 # MCP Tools
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def execute_cypher(query: str, params: dict[str, Any] | None = None) -> list[dict]:
+async def execute_cypher(
+    query: str,
+    params: dict[str, Any] | None = None,
+    auto_repair: bool = True,
+) -> list[dict]:
     """
     Execute a read-only Cypher query against the knowledge graph.
 
     The query is validated by the guardrails AST checker before execution.
+    If database errors occur (e.g., syntax typos, directional mismatches, unknown labels),
+    The Mechanic automatically intercepts, repairs, and retries the query seamlessly.
     Only MATCH/RETURN/WHERE/ORDER BY/LIMIT operations are allowed.
 
     Args:
         query: A Cypher query string (read-only).
         params: Optional dictionary of query parameters.
+        auto_repair: Whether to enable autonomous self-correction via The Mechanic.
 
     Returns:
         A list of result records as dictionaries.
@@ -100,8 +109,26 @@ async def execute_cypher(query: str, params: dict[str, Any] | None = None) -> li
     """
     driver: AsyncDriver = get_driver()
     logger.info(f"Executing Cypher: {query[:100]}...")
-    records = await _run_cypher(driver, query, params)
-    logger.info(f"Returned {len(records)} records")
+
+    if not auto_repair:
+        records = await _run_cypher(driver, query, params)
+        logger.info(f"Returned {len(records)} records")
+        return records
+
+    mechanic = get_mechanic()
+
+    async def _executor(q: str, p: Any):
+        return await _run_cypher(driver, q, p)
+
+    records, meta = await mechanic.intercept_and_execute(
+        executor_fn=_executor,
+        query=query,
+        params=params,
+        query_type="cypher",
+        schema_provider=get_graph_schema,
+    )
+    repaired_flag = meta.get("was_repaired", False)
+    logger.info(f"Returned {len(records)} records (Mechanic repaired: {repaired_flag})")
     return records
 
 

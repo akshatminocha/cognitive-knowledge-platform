@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network, Database, Layers, Sparkles, ArrowRightLeft, Globe } from 'lucide-react';
+import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network, Database, Layers, Sparkles, ArrowRightLeft, Globe, Wrench } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { queryAgent, getSkills, listSessions, getSession, deleteSession, exportUKA } from '../api/client';
 import './ChatPage.css';
@@ -84,6 +84,7 @@ export default function ChatPage() {
           routing_reason: result.routing_reason,
           cascade_fallback: result.cascade_fallback,
           cascade_reason: result.cascade_reason,
+          mechanic_repairs: result.mechanic_repairs || 0,
         },
         ts: Date.now(),
       };
@@ -259,6 +260,11 @@ export default function ChatPage() {
                           )}
                         </span>
                       )}
+                      {msg.metadata.mechanic_repairs > 0 && (
+                        <span className="mechanic-repaired-badge" title="Query self-corrected by The Mechanic without consuming step budget">
+                          <Wrench size={12} className="badge-icon" /> Self-Corrected
+                        </span>
+                      )}
                     </div>
                     {msg.metadata.sources && msg.metadata.sources.length > 0 && (
                       <div className="chat-sources-block">
@@ -279,6 +285,11 @@ export default function ChatPage() {
                                   <span className="source-label-wrapper">
                                     {src.type === 'graph' ? <Network size={12} className="source-type-icon" /> : src.type === 'vector' ? <Search size={12} className="source-type-icon" /> : <Database size={12} className="source-type-icon" />}
                                     <span>{label}</span>
+                                    {src.mechanic_repaired && (
+                                      <span className="source-mechanic-badge" title="Query automatically corrected by The Mechanic">
+                                        <Wrench size={10} className="badge-icon" /> Repaired
+                                      </span>
+                                    )}
                                   </span>
                                 </summary>
                                 <div className="chat-source-details">

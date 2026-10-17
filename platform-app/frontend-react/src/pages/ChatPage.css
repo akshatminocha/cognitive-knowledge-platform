@@ -511,3 +511,31 @@
 .badge-icon {
   flex-shrink: 0;
 }
+
+.mechanic-repaired-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(249, 115, 22, 0.15);
+  border: 1px solid rgba(249, 115, 22, 0.4);
+  color: #fb923c;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.source-mechanic-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(249, 115, 22, 0.18);
+  border: 1px solid rgba(249, 115, 22, 0.45);
+  color: #fb923c;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
