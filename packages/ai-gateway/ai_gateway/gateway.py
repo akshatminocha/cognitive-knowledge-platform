@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any, AsyncIterator, Optional
 
 import litellm
@@ -30,6 +31,7 @@ from ai_gateway.cache import ResponseCache
 from ai_gateway.config import DEFAULT_MODELS, GatewayConfig, ModelConfig
 from ai_gateway.rate_limiter import RateLimitExceeded, RateLimiter
 from ai_gateway.router import ModelCascadeRouter, RoutingDecision
+from ai_gateway.telemetry import AuditLogEntry, TelemetryStore
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,7 @@ class GatewayClient:
             max_entries=self.config.cache.max_entries,
         )
         self._router = ModelCascadeRouter()
+        self._telemetry = TelemetryStore()
 
         # Set API keys from config into environment (LiteLLM reads from env)
         self._configure_api_keys()
@@ -96,6 +99,11 @@ class GatewayClient:
     def router(self) -> ModelCascadeRouter:
         """Smart Model Cascade Router instance."""
         return self._router
+
+    @property
+    def telemetry(self) -> TelemetryStore:
+        """Observability and Telemetry Audit Store."""
+        return self._telemetry
 
     def _configure_api_keys(self) -> None:
         """Set provider API keys into environment variables for LiteLLM."""
@@ -168,6 +176,8 @@ class GatewayClient:
         else:
             target_model = self._resolve_model(model)
 
+        start_mono = time.monotonic()
+
         # 1. Pre-flight: Rate limit check
         self._rate_limiter.check_request()
 
@@ -212,6 +222,11 @@ class GatewayClient:
                 model_cfg = self._get_model_config(model_id)
                 cost_in = model_cfg.cost_per_input_token if model_cfg else 0.0
                 cost_out = model_cfg.cost_per_output_token if model_cfg else 0.0
+                in_cost = round(cost_in * prompt_tokens, 8)
+                out_cost = round(cost_out * completion_tokens, 8)
+                tot_cost = round(in_cost + out_cost, 8)
+                duration_ms = round((time.monotonic() - start_mono) * 1000.0, 2)
+
                 self._budget.record_usage(
                     model_id=model_id,
                     prompt_tokens=prompt_tokens,
@@ -219,6 +234,30 @@ class GatewayClient:
                     cost_per_input_token=cost_in,
                     cost_per_output_token=cost_out,
                 )
+
+                # Record in telemetry store
+                try:
+                    self._telemetry.record_call(AuditLogEntry(
+                        session_id=kwargs.get("session_id"),
+                        prompt_preview=user_query[:200],
+                        model_name=model_id,
+                        provider=model_cfg.provider.value if model_cfg else "unknown",
+                        is_smart_routed=is_auto_mode,
+                        complexity_tier=routing_decision.tier.value if routing_decision else None,
+                        intent=routing_decision.intent.value if routing_decision else None,
+                        input_tokens=prompt_tokens,
+                        output_tokens=completion_tokens,
+                        input_cost_usd=in_cost,
+                        output_cost_usd=out_cost,
+                        total_cost_usd=tot_cost,
+                        duration_ms=duration_ms,
+                        status="success" if model_id == target_model else "fallback",
+                        tools_called=kwargs.get("tools_called", []),
+                        routing_reason=routing_decision.reason if routing_decision else None,
+                        cascade_reason=routing_decision.fallback_reason if routing_decision else None,
+                    ))
+                except Exception as tel_err:
+                    logger.warning(f"Failed to record call telemetry: {tel_err}")
 
                 # 7. Post-flight: Cache the response
                 if use_cache and self.config.cache.enabled:
@@ -291,6 +330,7 @@ class GatewayClient:
             "rate_limits": self._rate_limiter.get_usage(),
             "budget": self._budget.get_summary(),
             "cache": self._cache.get_stats(),
+            "telemetry": self._telemetry.get_summary(),
         }
 
     def switch_default_model(self, model_id: str) -> None:

@@ -18,6 +18,7 @@ from ai_gateway.router import (
     ModelCascadeRouter,
     RoutingDecision,
 )
+from ai_gateway.telemetry import AuditLogEntry, TelemetryStore
 
 __all__ = [
     "GatewayClient",
@@ -30,4 +31,6 @@ __all__ = [
     "IntentType",
     "ModelCascadeRouter",
     "RoutingDecision",
+    "TelemetryStore",
+    "AuditLogEntry",
 ]
