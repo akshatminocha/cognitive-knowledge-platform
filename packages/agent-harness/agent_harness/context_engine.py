@@ -70,6 +70,60 @@ class CanonicalMessage:
 
 
 # ---------------------------------------------------------------------------
+# Semantic Distillation & Infinite Memory Types
+# ---------------------------------------------------------------------------
+@dataclass
+class DistilledMemoryState:
+    """
+    Structured semantic compression of historical conversation turns.
+    Preserves core entities, user profile facts, active goals, confirmed findings,
+    and unresolved questions without unbounded prompt token bloat.
+    """
+
+    user_profile_facts: list[str] = field(default_factory=list)
+    investigation_goals: list[str] = field(default_factory=list)
+    confirmed_findings: list[str] = field(default_factory=list)
+    unresolved_questions: list[str] = field(default_factory=list)
+    turn_range_compressed: tuple[int, int] = (0, 0)
+    last_updated: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return {
+            "user_profile_facts": self.user_profile_facts,
+            "investigation_goals": self.investigation_goals,
+            "confirmed_findings": self.confirmed_findings,
+            "unresolved_questions": self.unresolved_questions,
+            "turn_range_compressed": list(self.turn_range_compressed),
+            "last_updated": self.last_updated or datetime.now(timezone.utc).isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> DistilledMemoryState:
+        tr = data.get("turn_range_compressed", [0, 0])
+        return cls(
+            user_profile_facts=list(data.get("user_profile_facts", [])),
+            investigation_goals=list(data.get("investigation_goals", [])),
+            confirmed_findings=list(data.get("confirmed_findings", [])),
+            unresolved_questions=list(data.get("unresolved_questions", [])),
+            turn_range_compressed=(tr[0], tr[1]) if isinstance(tr, (list, tuple)) and len(tr) == 2 else (0, 0),
+            last_updated=data.get("last_updated"),
+        )
+
+    def to_markdown(self) -> str:
+        """Render distilled memory state into a high-density Markdown context block."""
+        parts = ["[Distilled Historical Context]"]
+        if self.user_profile_facts:
+            parts.append("**User / Subject Profile:**\n" + "\n".join(f"- {f}" for f in self.user_profile_facts))
+        if self.investigation_goals:
+            parts.append("**Investigation Goals:**\n" + "\n".join(f"- {g}" for g in self.investigation_goals))
+        if self.confirmed_findings:
+            parts.append("**Confirmed Findings:**\n" + "\n".join(f"- {cf}" for cf in self.confirmed_findings))
+        if self.unresolved_questions:
+            parts.append("**Unresolved / Next Steps:**\n" + "\n".join(f"- {q}" for q in self.unresolved_questions))
+        return "\n\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # Session Store
 # ---------------------------------------------------------------------------
 class ContextEngine:
@@ -87,6 +141,7 @@ class ContextEngine:
         self.max_history = max_history
         self._sessions: dict[str, list[CanonicalMessage]] = defaultdict(list)
         self._active_session: str = str(uuid.uuid4())
+        self._distillations: dict[str, DistilledMemoryState] = {}
         
         self.db_path = db_path
         self._init_db()
@@ -104,6 +159,11 @@ class ContextEngine:
                              data TEXT)''')
             conn.execute('''CREATE TABLE IF NOT EXISTS active_session
                             (id INTEGER PRIMARY KEY CHECK (id = 1), session_id TEXT)''')
+            conn.execute('''CREATE TABLE IF NOT EXISTS session_distillations
+                            (session_id TEXT PRIMARY KEY,
+                             state_json TEXT,
+                             last_compressed_msg_id INTEGER,
+                             updated_at DATETIME)''')
                             
     def _load_from_db(self) -> None:
         try:
@@ -132,7 +192,15 @@ class ContextEngine:
                         self._sessions[session_id].append(msg)
                     except Exception as e:
                         logger.warning(f"Failed to load message from DB: {e}")
-            logger.info(f"Loaded {sum(len(s) for s in self._sessions.values())} messages from DB")
+
+                cur_dist = conn.execute('SELECT session_id, state_json FROM session_distillations')
+                for session_id, state_str in cur_dist.fetchall():
+                    try:
+                        self._distillations[session_id] = DistilledMemoryState.from_dict(json.loads(state_str))
+                    except Exception as e:
+                        logger.warning(f"Failed to load distillation from DB: {e}")
+
+            logger.info(f"Loaded {sum(len(s) for s in self._sessions.values())} messages and {len(self._distillations)} distillations from DB")
         except Exception as e:
             logger.error(f"Failed to initialize ContextEngine from DB: {e}")
 
@@ -170,6 +238,7 @@ class ContextEngine:
             with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
                 conn.execute('DELETE FROM messages WHERE session_id = ?', (session_id,))
                 conn.execute('DELETE FROM sessions WHERE session_id = ?', (session_id,))
+                conn.execute('DELETE FROM session_distillations WHERE session_id = ?', (session_id,))
         except Exception as e:
             logger.error(f"Failed to clear session from DB: {e}")
 
@@ -271,6 +340,239 @@ class ContextEngine:
         recent = non_system[-(max_messages - len(system_msgs)):]
         return system_msgs + recent
 
+    def get_distilled_state(self, session_id: Optional[str] = None) -> Optional[DistilledMemoryState]:
+        """Get the current distilled memory state for a session, if any exists."""
+        sid = session_id or self._active_session
+        return self._distillations.get(sid)
+
+    def set_distilled_state(
+        self,
+        session_id: str,
+        state: DistilledMemoryState,
+        last_compressed_msg_id: int = 0,
+    ) -> None:
+        """Persist distilled memory state to memory and SQLite."""
+        self._distillations[session_id] = state
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                conn.execute(
+                    '''INSERT OR REPLACE INTO session_distillations 
+                       (session_id, state_json, last_compressed_msg_id, updated_at) 
+                       VALUES (?, ?, ?, ?)''',
+                    (
+                        session_id,
+                        json.dumps(state.to_dict()),
+                        last_compressed_msg_id,
+                        datetime.now(timezone.utc).isoformat(),
+                    )
+                )
+        except Exception as e:
+            logger.error(f"Failed to save distilled state in DB: {e}")
+
+    def clear_distilled_state(self, session_id: str) -> None:
+        """Clear distilled memory state for a session."""
+        self._distillations.pop(session_id, None)
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                conn.execute('DELETE FROM session_distillations WHERE session_id = ?', (session_id,))
+        except Exception as e:
+            logger.error(f"Failed to clear distilled state in DB: {e}")
+
+    def _deterministic_distill(
+        self,
+        messages: list[CanonicalMessage],
+        existing_state: Optional[DistilledMemoryState] = None,
+    ) -> DistilledMemoryState:
+        """
+        Fast heuristic distillation without external LLM dependencies.
+        Extracts user profile facts, active goals, confirmed findings, and open questions.
+        """
+        state = existing_state or DistilledMemoryState()
+        facts = list(state.user_profile_facts)
+        goals = list(state.investigation_goals)
+        findings = list(state.confirmed_findings)
+        questions = list(state.unresolved_questions)
+
+        for msg in messages:
+            content = (msg.content or "").strip()
+            if not content:
+                continue
+
+            lines = [line.strip() for line in content.split("\n") if line.strip()]
+
+            if msg.role == Role.USER:
+                # First non-empty user line represents a goal
+                first_line = lines[0][:140]
+                if first_line and first_line not in goals:
+                    goals.append(first_line)
+
+                # Check for profile / patient / domain disclosures
+                for line in lines:
+                    low = line.lower()
+                    if any(cue in low for cue in ["patient", "diagnosed", "mrn", "prescribed", "allergic", "preference", "user id", "i am", "my name", "role:"]):
+                        clean_fact = line[:140]
+                        if clean_fact not in facts:
+                            facts.append(clean_fact)
+
+            elif msg.role == Role.ASSISTANT:
+                for line in lines:
+                    clean = line.lstrip("-*#0123456789. ")
+                    if not clean:
+                        continue
+                    if clean.endswith("?") and clean not in questions:
+                        questions.append(clean[:140])
+                    elif any(indicator in line.lower() for indicator in [
+                        "result:", "found", "confirmed", "identified", "diagnosis", "recommend",
+                        "status:", "value:", "mg", "table", "graph"
+                    ]) or line.startswith(("- ", "* ", "1.", "2.")):
+                        clean_finding = clean[:140]
+                        if clean_finding not in findings and len(clean_finding) > 10:
+                            findings.append(clean_finding)
+
+        # Cap items to prevent runaway unbounded arrays
+        state.user_profile_facts = facts[-10:]
+        state.investigation_goals = goals[-8:]
+        state.confirmed_findings = findings[-15:]
+        state.unresolved_questions = questions[-6:]
+        state.last_updated = datetime.now(timezone.utc).isoformat()
+        return state
+
+    async def acompress_session(
+        self,
+        session_id: Optional[str] = None,
+        threshold_messages: int = 8,
+        keep_recent_turns: int = 2,
+        gateway: Optional[Any] = None,
+        model: Optional[str] = None,
+    ) -> Optional[DistilledMemoryState]:
+        """
+        Compress historical turns into a structured DistilledMemoryState.
+        
+        Preserves raw messages in SQLite permanently, while updating the structured distilled state
+        used for lean, infinite-turn prompt assembly.
+        """
+        sid = session_id or self._active_session
+        session = self._sessions.get(sid, [])
+        non_system = [m for m in session if m.role != Role.SYSTEM]
+
+        if len(non_system) < threshold_messages:
+            return self.get_distilled_state(sid)
+
+        # Older messages before the kept recent turns get distilled
+        keep_count = keep_recent_turns * 2
+        cutoff_idx = len(non_system) - keep_count
+        if cutoff_idx <= 0:
+            return self.get_distilled_state(sid)
+
+        older_messages = non_system[:cutoff_idx]
+        existing_state = self.get_distilled_state(sid)
+        new_state = None
+
+        if gateway is not None:
+            try:
+                transcript_text = "\n".join(
+                    f"{m.role.value.upper()}: {m.content}" for m in older_messages
+                )
+                existing_json = json.dumps(existing_state.to_dict()) if existing_state else "{}"
+                prompt = (
+                    "You are an expert context distillation agent.\n"
+                    "Your mission is to compress historical conversation turns into a high-density structured JSON summary.\n"
+                    "Preserve all patient/user profile facts, active goals, confirmed clinical/domain findings, and open questions.\n\n"
+                    f"Existing State:\n{existing_json}\n\n"
+                    f"Conversation Turns to Distill:\n{transcript_text}\n\n"
+                    "Respond with ONLY a JSON object matching this schema:\n"
+                    "{\n"
+                    '  "user_profile_facts": ["string"],\n'
+                    '  "investigation_goals": ["string"],\n'
+                    '  "confirmed_findings": ["string"],\n'
+                    '  "unresolved_questions": ["string"]\n'
+                    "}"
+                )
+                resp = await gateway.completion(
+                    messages=[
+                        {"role": "system", "content": "You are a precise data distillation engine. Output valid JSON only."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    model=model,
+                    temperature=0.2,
+                )
+                content = resp["choices"][0]["message"]["content"].strip()
+                if content.startswith("```json"):
+                    content = content[7:]
+                if content.startswith("```"):
+                    content = content[3:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                parsed = json.loads(content.strip())
+                new_state = DistilledMemoryState.from_dict(parsed)
+            except Exception as e:
+                logger.warning(f"LLM distillation failed, falling back to deterministic heuristic: {e}")
+
+        if new_state is None:
+            new_state = self._deterministic_distill(older_messages, existing_state=existing_state)
+
+        new_state.turn_range_compressed = (0, cutoff_idx)
+        self.set_distilled_state(sid, new_state, last_compressed_msg_id=cutoff_idx)
+        logger.info(f"Compressed session {sid}: {cutoff_idx} messages distilled into structured state")
+        return new_state
+
+    def compress_session(
+        self,
+        session_id: Optional[str] = None,
+        threshold_messages: int = 8,
+        keep_recent_turns: int = 2,
+    ) -> Optional[DistilledMemoryState]:
+        """Synchronous deterministic compression helper."""
+        sid = session_id or self._active_session
+        session = self._sessions.get(sid, [])
+        non_system = [m for m in session if m.role != Role.SYSTEM]
+        if len(non_system) < threshold_messages:
+            return self.get_distilled_state(sid)
+
+        cutoff_idx = len(non_system) - (keep_recent_turns * 2)
+        if cutoff_idx <= 0:
+            return self.get_distilled_state(sid)
+
+        older = non_system[:cutoff_idx]
+        existing = self.get_distilled_state(sid)
+        state = self._deterministic_distill(older, existing_state=existing)
+        state.turn_range_compressed = (0, cutoff_idx)
+        self.set_distilled_state(sid, state, last_compressed_msg_id=cutoff_idx)
+        return state
+
+    def get_optimized_context_window(
+        self,
+        session_id: Optional[str] = None,
+        keep_recent_turns: int = 2,
+    ) -> list[CanonicalMessage]:
+        """
+        Retrieve an optimized context window.
+        
+        If a distilled memory state exists, returns:
+        - System messages
+        - Synthetic system message containing [Distilled Historical Context]
+        - The most recent non-system messages (keep_recent_turns * 2 messages)
+        """
+        sid = session_id or self._active_session
+        session = self._sessions.get(sid, [])
+        distilled = self.get_distilled_state(sid)
+        non_system = [m for m in session if m.role != Role.SYSTEM]
+        keep_count = keep_recent_turns * 2
+
+        if not distilled or len(non_system) <= keep_count:
+            return list(session)
+
+        system_msgs = [m for m in session if m.role == Role.SYSTEM]
+        recent_msgs = non_system[-keep_count:]
+
+        distilled_msg = CanonicalMessage(
+            role=Role.SYSTEM,
+            content=distilled.to_markdown(),
+            session_id=sid,
+            metadata={"is_distilled_context": True}
+        )
+        return system_msgs + [distilled_msg] + recent_msgs
+
     def get_session_messages(
         self, session_id: Optional[str] = None
     ) -> list[CanonicalMessage]:
@@ -320,8 +622,23 @@ class ContextEngine:
         logger.info(f"Cleared and removed session: {sid}")
 
     def export_session(self, session_id: Optional[str] = None) -> list[dict]:
-        """Export a session as a list of serializable dicts."""
+        """
+        Export complete untruncated session messages from database.
+        Ensures 100% transcript preservation regardless of live context compression.
+        """
         sid = session_id or self._active_session
+        try:
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                cur = conn.execute(
+                    'SELECT data FROM messages WHERE session_id = ? ORDER BY id ASC',
+                    (sid,)
+                )
+                rows = cur.fetchall()
+                if rows:
+                    return [json.loads(r[0]) for r in rows]
+        except Exception as e:
+            logger.warning(f"Error reading complete session from DB: {e}")
+
         return [
             {
                 "role": m.role.value,
