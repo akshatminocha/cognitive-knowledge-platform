@@ -118,7 +118,10 @@ async def query_agent(request_body: QueryRequest, request: Request):
     """
     runner = request.app.state.runner
     registry = request.app.state.skill_registry
-    gateway = request.app.state.gateway
+    if getattr(runner, "gateway", None) is None:
+        runner.gateway = gateway
+    if getattr(runner, "guardrails", None) is None:
+        runner.guardrails = getattr(request.app.state, "guardrails", None)
 
     # 1. Smart Model Cascade Routing & Intent Gating (AI Economics)
     routing_decision = gateway.router.route_query(

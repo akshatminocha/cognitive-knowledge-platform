@@ -27,6 +27,12 @@ from agent_harness.memory import MemoryManager
 from agent_harness.reflection import ReflectionLoop
 from agent_harness.skills.models import Skill
 
+try:
+    from guardrails import GuardrailEngine, TokenMap
+except ImportError:
+    GuardrailEngine = None  # type: ignore[assignment, misc]
+    TokenMap = None  # type: ignore[assignment, misc]
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,12 +52,17 @@ class RunnerConfig:
     max_tokens_per_step: int = DEFAULT_MAX_TOKENS_PER_STEP
     enable_reflection: bool = True
     enable_memory: bool = True
+    enable_guardrails: bool = True
+    rehydrate_output: bool = True
     active_schema: str = "healthtech"
     active_model: str = "gemini-2.5-flash"
     active_skill: Optional[Skill] = None
     bypass_graph_tools: bool = False
     intent: Optional[str] = None
     complexity_tier: Optional[str] = None
+    enable_semantic_distillation: bool = True
+    distillation_threshold_messages: int = 8
+    distillation_keep_recent_turns: int = 2
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +80,7 @@ class StepResult:
     response_text: Optional[str] = None
     duration_ms: float = 0.0
     error: Optional[str] = None
+    mechanic_repaired: bool = False
 
 
 @dataclass
@@ -90,6 +102,7 @@ class RunResult:
     complexity_tier: Optional[str] = None
     smart_routed: bool = False
     routing_reason: Optional[str] = None
+    mechanic_repairs: int = 0
 
 
 class AgentRunner:
@@ -116,12 +129,21 @@ class AgentRunner:
         memory: Optional[MemoryManager] = None,
         reflection: Optional[ReflectionLoop] = None,
         context: Optional[ContextEngine] = None,
+        gateway: Optional[Any] = None,
+        guardrails: Optional[Any] = None,
         **kwargs: Any,
     ) -> None:
         self.config = config or RunnerConfig()
         self.context = context_engine or context or ContextEngine()
         self.memory = memory or MemoryManager()
         self.reflection = reflection or ReflectionLoop()
+        self.gateway = gateway
+        self.guardrails = guardrails
+        if self.guardrails is None and GuardrailEngine is not None and self.config.enable_guardrails:
+            try:
+                self.guardrails = GuardrailEngine()
+            except Exception as e:
+                logger.warning(f"Failed to auto-init GuardrailEngine in runner: {e}")
 
         # Track tool call history for infinite loop detection
         self._recent_tool_calls: list[str] = []
@@ -131,12 +153,14 @@ class AgentRunner:
         Execute a full agent run for a user query.
 
         Pipeline:
-        1. Apply active skill overrides (if set)
-        2. Store user message in canonical context
-        3. Retrieve relevant memory (long-term)
-        4. Build the LLM prompt (schema + context + memory)
-        5. Execute ADK agent loop with step budget
-        6. Return final result with governance metadata
+        1. Apply input guardrails (prompt injection detection + secret/PII masking)
+        2. Apply active skill overrides (if set)
+        3. Store sanitized user message in canonical context
+        4. Retrieve relevant memory (long-term)
+        5. Build the LLM prompt (schema + context + memory)
+        6. Execute ADK agent loop with step budget
+        7. Apply output guardrails (faithfulness scoring & optional rehydration)
+        8. Return final result with governance metadata
         """
         start_time = time.monotonic()
         self._recent_tool_calls.clear()
@@ -160,28 +184,61 @@ class AgentRunner:
             model_used=self.config.active_model,
         )
 
-        # 1. Store user message in canonical context
+        # 1. Apply Input Guardrails (Prompt injection check + Secrets & PII masking)
+        token_map = None
+        prompt_query = query
+        if self.guardrails and self.config.enable_guardrails:
+            try:
+                guard_res = self.guardrails.guard_input(query)
+                prompt_query = guard_res.masked_text
+                token_map = guard_res.token_map
+                result.pii_entities_masked = guard_res.pii_entities_found
+                if not guard_res.is_safe:
+                    result.final_response = f"Query rejected: {guard_res.blocked_reason or 'Input safety violation'}"
+                    result.error = guard_res.blocked_reason
+                    return result
+            except Exception as e:
+                logger.warning(f"Input safety violation triggered: {e}")
+                result.final_response = f"Query rejected by safety guardrail: {e}"
+                result.error = str(e)
+                return result
+
+        # 2. Store sanitized user message in canonical context
         self.context.add_message(CanonicalMessage(
             role=Role.USER,
-            content=query,
+            content=prompt_query,
             session_id=session_id,
         ))
 
-        # 2. Retrieve relevant memory
+        # 3. Retrieve relevant memory
         memory_context = ""
         if self.config.enable_memory:
-            memories = await self.memory.recall(query, limit=3)
+            memories = await self.memory.recall(prompt_query, limit=3)
             if memories:
                 memory_context = "\n".join(
                     f"[Memory] {m.content}" for m in memories
                 )
                 logger.info(f"Retrieved {len(memories)} relevant memories")
 
-        # 3-4. Agent execution loop
+        # 4. Agent execution loop
         step_start = time.monotonic()
         instruction = "You are a helpful knowledge assistant."
         if skill:
             instruction = skill.system_prompt
+
+        # Retrieve and inject distilled historical memory if available
+        if self.config.enable_semantic_distillation:
+            distilled_state = self.context.get_distilled_state(session_id)
+            if distilled_state:
+                instruction += f"\n\n{distilled_state.to_markdown()}"
+                logger.info(f"Assembled prompt with distilled memory state ({len(distilled_state.confirmed_findings)} findings)")
+
+        mechanic_history_len_before = 0
+        try:
+            from mcp_servers.mechanic import get_mechanic
+            mechanic_history_len_before = len(get_mechanic().repair_history)
+        except Exception:
+            pass
 
         try:
             from google.adk.runners import InMemoryRunner
@@ -204,7 +261,7 @@ class AgentRunner:
                 tools=tools
             )
             runner = InMemoryRunner(agent=agent)
-            events = await runner.run_debug(query, session_id=session_id or "default_session", quiet=True)
+            events = await runner.run_debug(prompt_query, session_id=session_id or "default_session", quiet=True)
             
             response_text = ""
             if events and events[-1].message and events[-1].message.parts:
@@ -244,6 +301,19 @@ class AgentRunner:
                                 prev_step.tool_output = resp_val
                                 break
 
+            # Track self-corrections from The Mechanic
+            try:
+                from mcp_servers.mechanic import get_mechanic
+                new_repairs = get_mechanic().repair_history[mechanic_history_len_before:]
+                repaired_items = [r for r in new_repairs if r.get("was_repaired")]
+                result.mechanic_repairs = len(repaired_items)
+                if repaired_items:
+                    for s in result.steps:
+                        if s.tool_name in ("execute_cypher", "execute_sql"):
+                            s.mechanic_repaired = True
+            except Exception:
+                pass
+
             error_msg = None
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
@@ -274,6 +344,20 @@ class AgentRunner:
                 result.was_reflected = True
                 logger.info(f"Reflection triggered: {reflection_result.reason}")
 
+        # 5b. Output Guardrails (Groundedness scoring + Optional rehydration)
+        if self.guardrails and self.config.enable_guardrails and result.final_response:
+            try:
+                out_res = self.guardrails.guard_output(
+                    response=result.final_response,
+                    context_chunks=[],
+                    token_map=token_map,
+                    rehydrate=self.config.rehydrate_output,
+                )
+                result.groundedness_score = out_res.groundedness_score
+                result.final_response = out_res.final_response
+            except Exception as e:
+                logger.warning(f"Output guardrail execution failed: {e}")
+
         # 6. Store assistant response in canonical context
         self.context.add_message(CanonicalMessage(
             role=Role.ASSISTANT,
@@ -294,6 +378,22 @@ class AgentRunner:
                 response=result.final_response,
                 session_id=session_id,
             )
+
+        # 8. Trigger rolling semantic compression if threshold reached
+        if self.config.enable_semantic_distillation:
+            session_msgs = self.context.get_session_messages(session_id)
+            non_sys_count = len([m for m in session_msgs if m.role != Role.SYSTEM])
+            if non_sys_count >= self.config.distillation_threshold_messages:
+                try:
+                    await self.context.acompress_session(
+                        session_id=session_id,
+                        threshold_messages=self.config.distillation_threshold_messages,
+                        keep_recent_turns=self.config.distillation_keep_recent_turns,
+                        gateway=self.gateway,
+                        model=self.config.active_model,
+                    )
+                except Exception as e:
+                    logger.warning(f"Rolling context compression failed: {e}")
 
         result.total_duration_ms = (time.monotonic() - start_time) * 1000
         logger.info(
