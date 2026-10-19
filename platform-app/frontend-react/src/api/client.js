@@ -90,6 +90,21 @@ export async function exportUKA(sessionId) {
   window.open(`${API_BASE}/sessions/${sessionId}/export?format=zip`, '_blank');
 }
 
+export async function importUKA(file, sessionId = null) {
+  const form = new FormData();
+  form.append('file', file);
+  if (sessionId) form.append('session_id', sessionId);
+  const res = await fetch(`${API_BASE}/uka/import`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.detail || `HTTP ${res.status}: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function getIngestedSources() {
   try {
     const data = await fetchJSON(`${API_BASE}/ingest/sources`);

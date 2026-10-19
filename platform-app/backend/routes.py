@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, Request
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
 from pydantic import BaseModel, Field
 
 from agent_harness.skills.skill_builder_agent import SkillBuilderAgent
@@ -356,20 +356,84 @@ async def clear_session(session_id: str, request: Request):
 
 
 @router.get("/sessions/{session_id}/export")
+@router.get("/sessions/{session_id}/export/uka")
 async def export_session(session_id: str, request: Request, format: str = "zip"):
-    """Export a session as a Universal Knowledge Artifact (UKA)."""
+    """
+    Export a session as a Universal Knowledge Artifact (UKA).
+    Supports format='zip' (.uka container) and format='json'.
+    """
     ctx = request.app.state.context_engine
-    exporter = UKAExporter(ctx)
+    neo4j = getattr(request.app.state, "neo4j_driver", None)
+    qdrant = getattr(request.app.state, "qdrant_client", None)
+    ontology_mgr = getattr(request.app.state, "ontology_manager", None)
+
+    exporter = UKAExporter(
+        context_engine=ctx,
+        neo4j_driver=neo4j,
+        qdrant_client=qdrant,
+        ontology_manager=ontology_mgr,
+        active_domain="healthtech",
+    )
     
     tmp_dir = Path(tempfile.mkdtemp())
     if format == "json":
         out_path = tmp_dir / f"uka_{session_id}.json"
         exporter.export_to_json(session_id, out_path)
-        return FileResponse(out_path, filename=f"{session_id}.json")
+        return FileResponse(out_path, filename=f"{session_id}.json", media_type="application/json")
     else:
-        out_path = tmp_dir / f"uka_{session_id}.uka"
+        out_path = tmp_dir / f"{session_id}.uka"
         exporter.export_to_bundle(session_id, out_path)
-        return FileResponse(out_path, filename=f"{session_id}.uka")
+        return FileResponse(
+            out_path,
+            filename=f"{session_id}.uka",
+            media_type="application/x-uka+zip",
+            headers={"Content-Disposition": f'attachment; filename="{session_id}.uka"'},
+        )
+
+
+@router.post("/uka/import")
+@router.post("/sessions/import/uka")
+async def import_uka_bundle(
+    request: Request,
+    file: UploadFile = File(...),
+    session_id: Optional[str] = Form(None),
+):
+    """
+    Import and rehydrate a Universal Knowledge Artifact (.uka) bundle.
+    Restores graph nodes and relationships into Neo4j, vector chunks into Qdrant,
+    conversational history into SQLite, and extracts packaged media files.
+    """
+    if not file.filename.endswith((".uka", ".zip")):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid archive format. Please upload a .uka or .zip file.",
+        )
+
+    tmp_dir = Path(tempfile.mkdtemp())
+    tmp_file = tmp_dir / file.filename
+    content = await file.read()
+    tmp_file.write_bytes(content)
+
+    from uka.importer import UKAImporter
+
+    media_dir = Path("data/media")
+    importer = UKAImporter(
+        neo4j_driver=getattr(request.app.state, "neo4j_driver", None),
+        qdrant_client=getattr(request.app.state, "qdrant_client", None),
+        context_engine=request.app.state.context_engine,
+        media_storage_dir=media_dir,
+    )
+
+    try:
+        result = importer.import_bundle(
+            bundle_path=tmp_file,
+            target_session_id=session_id,
+            verify_integrity=True,
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Failed to import UKA bundle: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to import UKA bundle: {str(e)}")
 
 
 # ---------------------------------------------------------------------------

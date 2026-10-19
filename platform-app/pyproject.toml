@@ -16,6 +16,7 @@ dependencies = [
     "ckp-mcp-servers",
     "ckp-ontology-engine",
     "ckp-guardrails",
+    "ckp-uka-core",
     "sentence-transformers>=6.0.1",
     "python-pptx>=1.0.0",
 ]

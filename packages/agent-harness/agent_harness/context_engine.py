@@ -263,19 +263,51 @@ class ContextEngine:
         self._active_session = session_id
         self._set_active_session_db(session_id)
 
-    def add_message(self, message: CanonicalMessage) -> None:
+    def add_message(
+        self,
+        message: Optional[Any] = None,
+        role: Optional[Any] = None,
+        content: Optional[str] = None,
+        session_id: Optional[str] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
         """
         Add a message to the session store.
 
-        Uses the message's session_id if set, otherwise the active session.
-        Enforces max_history by trimming oldest messages (keeping system messages).
+        Supports multiple calling signatures:
+        - add_message(canonical_message)
+        - add_message(session_id, role, content)
+        - add_message(role=..., content=..., session_id=...)
+        - add_message(text_content)
         """
-        sid = message.session_id or self._active_session
-        message.session_id = sid
+        if isinstance(message, CanonicalMessage):
+            msg_obj = message
+        elif isinstance(message, str) and len(args) >= 2:
+            # Positional: (session_id, role, content)
+            sid = message
+            r = args[0]
+            c = args[1]
+            role_enum = Role(r) if isinstance(r, str) and r in [x.value for x in Role] else (r if isinstance(r, Role) else Role.USER)
+            msg_obj = CanonicalMessage(role=role_enum, content=str(c), session_id=sid)
+        elif role is not None and (content is not None or len(args) > 0):
+            # Keyword or mixed: (role=..., content=..., session_id=...)
+            c = content if content is not None else (args[0] if len(args) > 0 else "")
+            sid = session_id or (message if isinstance(message, str) else None)
+            role_enum = Role(role) if isinstance(role, str) and role in [x.value for x in Role] else (role if isinstance(role, Role) else Role.USER)
+            msg_obj = CanonicalMessage(role=role_enum, content=str(c), session_id=sid)
+        elif isinstance(message, str):
+            # Simple text string: add_message("hello")
+            msg_obj = CanonicalMessage(role=Role.USER, content=message, session_id=session_id)
+        else:
+            raise ValueError(f"Invalid message format for add_message: {message}")
+
+        sid = msg_obj.session_id or self._active_session
+        msg_obj.session_id = sid
         session = self._sessions[sid]
-        session.append(message)
+        session.append(msg_obj)
         
-        self._save_message_to_db(message)
+        self._save_message_to_db(msg_obj)
 
         # Enforce history limit in memory (preserve system messages)
         if len(session) > self.max_history:
@@ -579,6 +611,20 @@ class ContextEngine:
         """Get all messages in a session."""
         sid = session_id or self._active_session
         return list(self._sessions.get(sid, []))
+
+    def get_session(self, session_id: Optional[str] = None):
+        """Get a session container object with messages."""
+        sid = session_id or self._active_session
+        messages = self.get_session_messages(sid)
+        if not messages and sid not in self._sessions:
+            return None
+
+        class SessionContainer:
+            def __init__(self, s_id: str, msgs: list[CanonicalMessage]):
+                self.session_id = s_id
+                self.messages = msgs
+
+        return SessionContainer(sid, messages)
 
     def list_sessions(self) -> list[dict]:
         """List all sessions with message counts, sorted by latest activity descending."""

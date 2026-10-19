@@ -539,3 +539,211 @@
   margin-left: 6px;
 }
 
+/* ===== UKA IMPORT MODAL & DROPZONE ===== */
+.uka-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.uka-modal-card {
+  width: 90%;
+  max-width: 520px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.uka-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.uka-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.uka-modal-title h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.uka-modal-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.uka-modal-subtitle code {
+  background: rgba(122, 82, 244, 0.15);
+  color: var(--accent-primary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+
+.uka-dropzone {
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  padding: 32px 20px;
+  text-align: center;
+  cursor: pointer;
+  background: rgba(17, 24, 39, 0.4);
+  transition: all var(--transition-normal);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.uka-dropzone:hover,
+.uka-dropzone.drag-active {
+  border-color: var(--accent-primary);
+  background: rgba(122, 82, 244, 0.08);
+  box-shadow: 0 0 20px rgba(122, 82, 244, 0.15);
+}
+
+.uka-dropzone-icon {
+  color: var(--accent-primary);
+  opacity: 0.8;
+  transition: transform var(--transition-normal);
+}
+
+.uka-dropzone:hover .uka-dropzone-icon {
+  transform: translateY(-2px);
+  opacity: 1;
+}
+
+.uka-dropzone-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.uka-dropzone-text small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.uka-selected-file {
+  color: var(--accent-primary);
+  background: rgba(122, 82, 244, 0.12);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.uka-result-card {
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.uka-result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.uka-result-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--success);
+}
+
+.uka-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.uka-stat-badge {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 4px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.uka-stat-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.uka-stat-lbl {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.uka-manifest-summary {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 8px;
+}
+
+.uka-manifest-summary p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.uka-error-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.uka-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.uka-import-sidebar-btn {
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+}
+
+.uka-import-sidebar-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+

@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, Cpu, Activity, FileText, Search, Network, Database, Layers, Sparkles, ArrowRightLeft, Globe, Wrench } from 'lucide-react';
+import { 
+  MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, 
+  Cpu, Activity, FileText, Search, Network, Database, Layers, Sparkles, 
+  ArrowRightLeft, Globe, Wrench, UploadCloud, Download, CheckCircle2, AlertCircle, X, FileArchive 
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { queryAgent, getSkills, listSessions, getSession, deleteSession, exportUKA } from '../api/client';
+import { queryAgent, getSkills, listSessions, getSession, deleteSession, exportUKA, importUKA } from '../api/client';
 import './ChatPage.css';
 
 export default function ChatPage() {
@@ -16,11 +20,46 @@ export default function ChatPage() {
   const [activeModel, setActiveModel] = useState('auto');
   const [sessions, setSessions] = useState([]);
 
+  // UKA Import Modal State
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef(null);
+
   useEffect(() => { 
     getSkills().then(setSkills); 
     listSessions().then(setSessions);
   }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  const handleImportSubmit = async () => {
+    if (!importFile || importing) return;
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+
+    try {
+      const res = await importUKA(importFile);
+      setImportResult(res);
+      const updatedSessions = await listSessions();
+      setSessions(updatedSessions);
+    } catch (err) {
+      setImportError(err.message || 'Failed to import UKA bundle');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleOpenImportedSession = async (sid) => {
+    setShowImportModal(false);
+    setImportFile(null);
+    setImportResult(null);
+    setImportError(null);
+    await handleSessionClick(sid);
+  };
 
   const handleSessionClick = async (sid) => {
     if (sessionId === sid) return;
@@ -168,9 +207,16 @@ export default function ChatPage() {
             })
           )}
         </div>
-        <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--border-light)' }}>
+        <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={clearChat}>
             <MessageSquare size={16} /> New Session
+          </button>
+          <button 
+            className="btn btn-secondary uka-import-sidebar-btn" 
+            style={{ width: '100%', justifyContent: 'center', background: 'var(--bg-card)' }} 
+            onClick={() => { setShowImportModal(true); setImportResult(null); setImportError(null); setImportFile(null); }}
+          >
+            <UploadCloud size={16} /> Import .UKA
           </button>
         </div>
       </div>
@@ -198,12 +244,25 @@ export default function ChatPage() {
               <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
               <option value="gpt-4o">GPT-4o</option>
             </select>
-            {messages.length > 0 && (
-              <div className="toolbar-actions">
-                <button className="btn icon-btn" onClick={exportChat} title="Export Universal Knowledge Artifact (UKA) / Zip"><Package size={18} /></button>
-                <button className="btn icon-btn" onClick={clearChat} title="Clear chat"><Trash2 size={18} /></button>
-              </div>
-            )}
+            <div className="toolbar-actions">
+              <button 
+                className="btn icon-btn" 
+                onClick={() => { setShowImportModal(true); setImportResult(null); setImportError(null); setImportFile(null); }} 
+                title="Import Universal Knowledge Artifact (.uka)"
+              >
+                <UploadCloud size={18} />
+              </button>
+              {(messages.length > 0 || sessionId) && (
+                <button className="btn icon-btn" onClick={exportChat} title="Export Universal Knowledge Artifact (.uka)">
+                  <Download size={18} />
+                </button>
+              )}
+              {messages.length > 0 && (
+                <button className="btn icon-btn" onClick={clearChat} title="Clear chat">
+                  <Trash2 size={18} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -344,6 +403,133 @@ export default function ChatPage() {
           </button>
         </div>
       </div>
+
+      {showImportModal && (
+        <div className="uka-modal-backdrop" onClick={() => setShowImportModal(false)}>
+          <div className="uka-modal-card glass-card" onClick={e => e.stopPropagation()}>
+            <div className="uka-modal-header">
+              <div className="uka-modal-title">
+                <FileArchive size={20} className="text-accent" />
+                <h3>Import Universal Knowledge Artifact</h3>
+              </div>
+              <button className="btn icon-btn" onClick={() => setShowImportModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="uka-modal-subtitle">
+              Upload a <code>.uka</code> or <code>.zip</code> bundle to rehydrate conversational memory, Neo4j knowledge subgraphs, Qdrant vectors, and multimodal media.
+            </p>
+
+            {!importResult ? (
+              <div
+                className={`uka-dropzone ${dragActive ? 'drag-active' : ''}`}
+                onDragOver={e => { e.preventDefault(); setDragActive(true); }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={e => {
+                  e.preventDefault();
+                  setDragActive(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    setImportFile(e.dataTransfer.files[0]);
+                    setImportError(null);
+                  }
+                }}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".uka,.zip"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    if (e.target.files && e.target.files[0]) {
+                      setImportFile(e.target.files[0]);
+                      setImportError(null);
+                    }
+                  }}
+                />
+                <UploadCloud size={40} className="uka-dropzone-icon" />
+                <div className="uka-dropzone-text">
+                  {importFile ? (
+                    <span className="uka-selected-file">
+                      <strong>{importFile.name}</strong> ({(importFile.size / 1024).toFixed(1)} KB)
+                    </span>
+                  ) : (
+                    <>
+                      <span>Drag & drop your <strong>.uka</strong> artifact here</span>
+                      <small>or click to browse from your computer</small>
+                    </>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="uka-result-card">
+                <div className="uka-result-header">
+                  <CheckCircle2 size={24} className="text-success" />
+                  <h4>Session Rehydrated Successfully!</h4>
+                </div>
+                <div className="uka-stats-grid">
+                  <div className="uka-stat-badge">
+                    <span className="uka-stat-val">{importResult.nodes_restored}</span>
+                    <span className="uka-stat-lbl">Graph Nodes</span>
+                  </div>
+                  <div className="uka-stat-badge">
+                    <span className="uka-stat-val">{importResult.edges_restored}</span>
+                    <span className="uka-stat-lbl">Graph Edges</span>
+                  </div>
+                  <div className="uka-stat-badge">
+                    <span className="uka-stat-val">{importResult.vectors_restored}</span>
+                    <span className="uka-stat-lbl">Vector Chunks</span>
+                  </div>
+                  <div className="uka-stat-badge">
+                    <span className="uka-stat-val">{importResult.messages_restored}</span>
+                    <span className="uka-stat-lbl">Messages</span>
+                  </div>
+                </div>
+                {importResult.manifest && (
+                  <div className="uka-manifest-summary">
+                    <strong>{importResult.manifest.title}</strong>
+                    <p>{importResult.manifest.description}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {importError && (
+              <div className="uka-error-banner">
+                <AlertCircle size={18} />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            <div className="uka-modal-actions">
+              {!importResult ? (
+                <>
+                  <button className="btn btn-secondary" onClick={() => setShowImportModal(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleImportSubmit}
+                    disabled={!importFile || importing}
+                  >
+                    {importing ? <span className="spinner" /> : <UploadCloud size={16} />}
+                    {importing ? 'Rehydrating...' : 'Rehydrate Bundle'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={() => handleOpenImportedSession(importResult.session_id)}
+                >
+                  Open Rehydrated Session
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
