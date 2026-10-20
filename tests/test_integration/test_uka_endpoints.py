@@ -54,6 +54,21 @@ async def test_uka_export_and_import_endpoints(tmp_path):
             assert "conversations/transcript.json" in namelist
             assert "ontology/schema.yaml" in namelist
 
+        # 1b. Validate full round-trip through UKA FastMCP Server
+        from uka_mcp.server import uka_inspect, uka_search, uka_export_context
+        bundle_file = tmp_path / f"{test_session_id}.uka"
+        bundle_file.write_bytes(bundle_bytes)
+
+        mcp_inspect = uka_inspect(str(bundle_file))
+        assert mcp_inspect["status"] == "valid"
+        assert mcp_inspect["manifest"]["artifact_id"].startswith(f"uka_{test_session_id}")
+
+        mcp_search = uka_search(str(bundle_file), query="Lisinopril")
+        assert len(mcp_search) > 0
+
+        mcp_ctx = uka_export_context(str(bundle_file))
+        assert "Lisinopril" in mcp_ctx
+
         # 2. Test POST /api/v2/uka/import into a brand new session
         new_session_id = f"test-rehydrated-{uuid.uuid4().hex[:8]}"
         ctx.clear_session(new_session_id)
