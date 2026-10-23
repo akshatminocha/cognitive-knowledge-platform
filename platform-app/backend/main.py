@@ -67,12 +67,13 @@ async def lifespan(app: FastAPI):
     app.state.context_engine = ContextEngine()
     app.state.memory = MemoryManager()
     
-    # Initialize the core runner with shared context, memory, gateway, and guardrails
+    # Initialize the core runner with shared context, memory, gateway, guardrails, and skill registry
     app.state.runner = AgentRunner(
         context_engine=app.state.context_engine,
         memory=app.state.memory,
         gateway=app.state.gateway,
         guardrails=app.state.guardrails,
+        skill_registry=app.state.skill_registry,
     )
 
     # Initialize optional database clients (graceful degradation if unavailable)
@@ -151,6 +152,6 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "platform": "Cognitive Knowledge Platform",
     }

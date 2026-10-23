@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 from agent_harness.skills.skill_builder_agent import SkillBuilderAgent
 from agent_harness.prompts.prompt_builder_agent import PromptBuilderAgent
 from agent_harness.uka_export import UKAExporter
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
+import json
 import tempfile
 from pathlib import Path
 
@@ -109,125 +110,123 @@ class AdminConfigRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Query Endpoints
+# Helpers for Query & Streaming Endpoints
 # ---------------------------------------------------------------------------
-@router.post("/query", response_model=QueryResponse)
-async def query_agent(request_body: QueryRequest, request: Request):
+def resolve_routing_and_skill(request_body: QueryRequest, request: Request):
     """
-    Send a natural language query to the CKP agent.
+    Resolves smart cascade routing, intent gating, and fast deterministic skill lookup.
     """
+    gateway = getattr(request.app.state, "gateway", None)
     runner = request.app.state.runner
     registry = request.app.state.skill_registry
-    if getattr(runner, "gateway", None) is None:
+    if gateway and getattr(runner, "gateway", None) is None:
         runner.gateway = gateway
     if getattr(runner, "guardrails", None) is None:
         runner.guardrails = getattr(request.app.state, "guardrails", None)
 
     # 1. Smart Model Cascade Routing & Intent Gating (AI Economics)
-    routing_decision = gateway.router.route_query(
-        request_body.query,
-        requested_model=request_body.model,
-    )
+    if gateway:
+        routing_decision = gateway.router.route_query(
+            request_body.query,
+            requested_model=request_body.model,
+        )
+    else:
+        from ai_gateway.router import RoutingDecision, ComplexityTier, RoutingIntent
+        routing_decision = RoutingDecision(
+            selected_model=request_body.model or "gemini-2.5-flash",
+            tier=ComplexityTier.TIER_1,
+            intent=RoutingIntent.GRAPH_RAG,
+            reason="Gateway not attached to state, using default routing.",
+        )
     runner.config.active_model = routing_decision.selected_model
     runner.config.bypass_graph_tools = routing_decision.bypass_graph_tools
     runner.config.intent = routing_decision.intent.value
     runner.config.complexity_tier = routing_decision.tier.value
 
+    if getattr(runner, "skill_registry", None) is None:
+        runner.skill_registry = registry
+
     skill_name = request_body.active_skill
-    
-    # If open-domain intent detected, bypass domain-specific skill lookup
     if routing_decision.bypass_graph_tools:
         skill_name = "general_assistant"
+        runner.config.active_skill = None
     elif not skill_name or skill_name == "auto":
-        # Auto-routing if skill is "auto"
-        skills = registry.list_all()
-        skill_descriptions = [f"- {s['name']}: {s.get('description', '')}" for s in skills]
-        sys_prompt = "You are a router. Return ONLY the exact name of the best skill for the query. If none fit, return 'knowledge_qa'."
-        user_prompt = f"Query: '{request_body.query}'\nSkills:\n" + "\n".join(skill_descriptions)
-        
+        # Native In-Agent Skill Selection (Approach 2):
+        # Zero pre-flight latency, zero extra vector database maintenance.
+        # The agent natively selects and adopts the specialized skill persona in its reasoning loop.
+        skill_name = "auto"
+        runner.config.active_skill = None
+    else:
+        # Explicit user-selected skill override
         try:
-            res = await gateway.completion(
-                messages=[
-                    {"role": "system", "content": sys_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                model=routing_decision.selected_model
-            )
-            skill_name = res["choices"][0]["message"]["content"].strip()
-            # fallback if hallucinates
-            if not any(s["name"] == skill_name for s in skills):
-                skill_name = "knowledge_qa"
-        except Exception as e:
-            logger.warning(f"Auto-routing failed, fallback to knowledge_qa: {e}")
-            skill_name = "knowledge_qa"
-
-    logger.info(
-        f"Executing query with skill: {skill_name} | model: {routing_decision.selected_model} "
-        f"| tier: {routing_decision.tier.value} | intent: {routing_decision.intent.value}"
-    )
-    
-    # Apply skill to runner config
-    try:
-        if skill_name and skill_name != "general_assistant":
             registry.load_directory()
             runner.config.active_skill = registry.get(skill_name)
-        else:
+        except Exception:
             runner.config.active_skill = None
-    except Exception:
-        runner.config.active_skill = None
 
-    # Execute the agent with active or newly generated session_id
-    active_sid = request_body.session_id or str(uuid.uuid4())
-    result = await runner.run(request_body.query, session_id=active_sid)
+    return runner, routing_decision, skill_name, gateway
 
-    # Collect rich data sources from tools
+
+def collect_rich_sources(steps, schema_name: str, skill_name: str) -> list[dict]:
+    """
+    Parses executed tools across Graph, Relational, and Vector storage engines,
+    producing rich, multi-source collapsible cards without collisions.
+    """
     source_map = {}
     import re
-    for step in result.steps:
-        if step.tool_name == "semantic_search":
-            key = "vector_knowledge_chunks"
-            if key not in source_map:
-                source_map[key] = {
-                    "type": "vector",
-                    "label": "Vector Store: knowledge_chunks",
-                    "explanation": "Semantic search performed on ingested chunks.",
-                    "data": []
-                }
-            if isinstance(step.tool_output, list):
-                for hit in step.tool_output:
+
+    cypher_count = 0
+    sql_count = 0
+
+    for step in steps:
+        tool_name = getattr(step, "tool_name", None) or (step.get("tool_name") if isinstance(step, dict) else None)
+        tool_input = getattr(step, "tool_input", None) or (step.get("tool_input") if isinstance(step, dict) else {})
+        tool_output = getattr(step, "tool_output", None) or (step.get("tool_output") if isinstance(step, dict) else None)
+        step_idx = getattr(step, "step_index", 1) or (step.get("step_index", 1) if isinstance(step, dict) else 1)
+        is_repaired = getattr(step, "mechanic_repaired", False) or (step.get("mechanic_repaired", False) if isinstance(step, dict) else False)
+
+        if tool_name in ["semantic_search", "vector_search"]:
+            key = f"vector_knowledge_chunks_{step_idx}"
+            source_map[key] = {
+                "type": "vector",
+                "label": "Vector Store (Qdrant): knowledge_chunks",
+                "explanation": "Semantic vector similarity search across ingested text chunk embeddings.",
+                "data": [],
+                "mechanic_repaired": False,
+            }
+            if isinstance(tool_output, list):
+                for hit in tool_output:
                     if isinstance(hit, dict):
-                        text = hit.get("text", "")[:150] + "..."
+                        text = hit.get("text", "")[:150] + ("..." if len(hit.get("text", "")) > 150 else "")
                         fname = hit.get("metadata", {}).get("filename", "Document")
                         source_map[key]["data"].append({"file": fname, "snippet": text})
-        
-        elif step.tool_name in ["execute_cypher", "graph_query"]:
+
+        elif tool_name in ["execute_cypher", "graph_query"]:
+            cypher_count += 1
             labels = ["Knowledge Graph"]
             cypher_query = ""
-            if step.tool_input and "query" in step.tool_input:
-                cypher_query = step.tool_input["query"]
+            if tool_input and "query" in tool_input:
+                cypher_query = tool_input["query"]
                 found = re.findall(r":([A-Za-z0-9_]+)", cypher_query)
                 if found:
                     labels = list(set(found))
             
             label_str = ", ".join(labels)
-            key = f"graph_{label_str}"
-            
-            is_repaired = getattr(step, "mechanic_repaired", False)
-            if key not in source_map:
-                source_map[key] = {
-                    "type": "graph",
-                    "label": f"Graph: {label_str}",
-                    "explanation": f"Cypher query executed on Neo4j matching {label_str}.",
-                    "data": [],
-                    "mechanic_repaired": is_repaired,
-                }
-            if is_repaired:
-                source_map[key]["mechanic_repaired"] = True
-            
+            key = f"graph_{label_str}_{step_idx}"
+            query_suffix = f" [Query {cypher_count}]" if cypher_count > 1 else ""
+
+            source_map[key] = {
+                "type": "graph",
+                "label": f"Knowledge Graph (Neo4j): {label_str}{query_suffix}",
+                "explanation": f"Cypher graph traversal executed on Neo4j matching {label_str}.",
+                "data": [],
+                "mechanic_repaired": is_repaired,
+            }
+
             if cypher_query:
                 source_map[key]["data"].append(f"Query: {cypher_query[:120]}...")
-            
-            records = step.tool_output
+
+            records = tool_output
             if isinstance(records, dict):
                 records = records.get("output", records.get("result", []))
             if isinstance(records, list):
@@ -235,15 +234,74 @@ async def query_agent(request_body: QueryRequest, request: Request):
                     rec_str = str(record)
                     source_map[key]["data"].append(rec_str[:150] + ("..." if len(rec_str) > 150 else ""))
 
-    unique_sources = list(source_map.values())[:3]
+        elif tool_name in ["execute_sql", "sql_query"]:
+            sql_count += 1
+            table = "Relational Data"
+            sql_query = ""
+            if tool_input and "query" in tool_input:
+                sql_query = tool_input["query"]
+                found = re.findall(r"FROM\s+([A-Za-z0-9_]+)", sql_query, re.IGNORECASE)
+                if found:
+                    table = found[0]
+
+            key = f"sql_{table}_{step_idx}"
+            source_map[key] = {
+                "type": "relational",
+                "label": f"Relational DB (PostgreSQL): {table}",
+                "explanation": f"Structured SQL relational query executed on '{table}'.",
+                "data": [],
+                "mechanic_repaired": is_repaired,
+            }
+            if sql_query:
+                source_map[key]["data"].append(f"SQL: {sql_query[:120]}...")
+
+            records = tool_output
+            if isinstance(records, dict):
+                records = records.get("output", records.get("result", []))
+            if isinstance(records, list):
+                for record in records[:5]:
+                    rec_str = str(record)
+                    source_map[key]["data"].append(rec_str[:150] + ("..." if len(rec_str) > 150 else ""))
+
+    unique_sources = list(source_map.values())[:6]
+
     if not unique_sources:
-        schema = request_body.schema_name or "healthtech"
+        schema = schema_name or "healthtech"
+        skill_display = "Auto (Native Agent Selection)" if skill_name == "auto" else skill_name
         unique_sources = [{
             "type": "graph",
-            "label": f"Knowledge Base: {schema}",
-            "explanation": f"Grounded in active {schema} schema knowledge graph and context.",
-            "data": [f"Domain: {schema}", f"Skill: {skill_name}"]
+            "label": f"Active Knowledge Base: {schema}",
+            "explanation": f"Grounded in active {schema} schema entities and topological relationships in Neo4j.",
+            "data": [f"Domain: {schema}", f"Skill: {skill_display}"]
         }]
+    return unique_sources
+
+
+# ---------------------------------------------------------------------------
+# Query Endpoints
+# ---------------------------------------------------------------------------
+@router.post("/query", response_model=QueryResponse)
+async def query_agent(request_body: QueryRequest, request: Request):
+    """
+    Send a natural language query to the CKP agent (synchronous batch mode).
+    """
+    runner, routing_decision, skill_name, gateway = resolve_routing_and_skill(request_body, request)
+    active_sid = request_body.session_id or str(uuid.uuid4())
+
+    logger.info(
+        f"Executing query with skill: {skill_name} | model: {routing_decision.selected_model} "
+        f"| tier: {routing_decision.tier.value} | intent: {routing_decision.intent.value}"
+    )
+
+    # Execute the agent with active or newly generated session_id
+    result = await runner.run(request_body.query, session_id=active_sid)
+
+    # Collect rich data sources from tools
+    unique_sources = collect_rich_sources(
+        result.steps,
+        schema_name=request_body.schema_name or "healthtech",
+        skill_name=skill_name
+    )
                         
     ctx = getattr(request.app.state, "context_engine", None)
     tools_used_list = [step.tool_name for step in result.steps if step.tool_name]
@@ -313,6 +371,76 @@ async def query_agent(request_body: QueryRequest, request: Request):
     )
 
 
+@router.post("/query/stream")
+async def stream_query_endpoint(request_body: QueryRequest, request: Request):
+    """
+    Server-Sent Events (SSE) streaming endpoint for real-time thinking trace and token generation.
+    """
+    runner, routing_decision, skill_name, gateway = resolve_routing_and_skill(request_body, request)
+    active_sid = request_body.session_id or str(uuid.uuid4())
+
+    async def sse_event_generator():
+        # Emit initial intent and routing decision event
+        yield f"data: {json.dumps({'type': 'intent', 'model': routing_decision.selected_model, 'tier': routing_decision.tier.value, 'intent': routing_decision.intent.value, 'smart_routed': bool(request_body.model and request_body.model.lower() in ('auto', 'auto (ai economics)', 'smart')), 'routing_reason': routing_decision.reason, 'estimated_cost_tier': routing_decision.estimated_cost_tier, 'cascade_fallback': routing_decision.fallback_applied, 'cascade_reason': routing_decision.fallback_reason})}\n\n"
+
+        accumulated_steps = []
+        final_meta = {}
+
+        try:
+            async for event in runner.run_stream(request_body.query, session_id=active_sid):
+                ev_type = event.get("type")
+                if ev_type in ("action", "observation"):
+                    accumulated_steps.append(event)
+                elif ev_type == "done":
+                    final_meta = event
+                
+                yield f"data: {json.dumps(event)}\n\n"
+
+            # Parse rich sources from steps
+            rich_sources = collect_rich_sources(
+                accumulated_steps,
+                schema_name=request_body.schema_name or "healthtech",
+                skill_name=skill_name,
+            )
+
+            # Update session context metadata
+            ctx = getattr(request.app.state, "context_engine", None)
+            tools_used_list = [s.get("tool") for s in accumulated_steps if s.get("type") == "action" and s.get("tool")]
+            if ctx:
+                ctx.update_last_message_metadata(
+                    active_sid,
+                    {
+                        "sources": list(rich_sources),
+                        "tools_used": tools_used_list,
+                        "total_steps": final_meta.get("total_steps", len(accumulated_steps) + 1),
+                        "duration_ms": final_meta.get("duration_ms", 0.0),
+                        "model_used": runner.config.active_model,
+                        "smart_routed": bool(request_body.model and request_body.model.lower() in ("auto", "auto (ai economics)", "smart")),
+                        "complexity_tier": routing_decision.tier.value,
+                        "intent": routing_decision.intent.value,
+                        "routing_reason": routing_decision.reason,
+                    }
+                )
+
+            # Emit final resolution packet
+            yield f"data: {json.dumps({'type': 'complete', 'session_id': active_sid, 'sources': rich_sources, 'model_used': runner.config.active_model, 'complexity_tier': routing_decision.tier.value, 'intent': routing_decision.intent.value, 'smart_routed': bool(request_body.model and request_body.model.lower() in ('auto', 'auto (ai economics)', 'smart')), 'routing_reason': routing_decision.reason, 'total_steps': final_meta.get('total_steps', len(accumulated_steps) + 1), 'duration_ms': final_meta.get('duration_ms', 0.0)})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            logger.error(f"Streaming query error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        sse_event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
 @router.get("/sessions")
 async def list_sessions(request: Request):
     """List all active conversation sessions."""
@@ -328,20 +456,25 @@ async def get_session(session_id: str, request: Request):
     for msg in raw_messages:
         if msg.get("role") == "assistant":
             meta = msg.get("metadata") or {}
+            model_name = (
+                meta.get("model_used")
+                or msg.get("model_used")
+                or getattr(request.app.state, "active_model", None)
+                or "gemini-2.5-flash"
+            )
             if not meta.get("sources"):
                 schema = meta.get("schema", "healthtech")
                 meta["sources"] = [{
                     "type": "graph",
                     "label": f"Knowledge Base: {schema}",
                     "explanation": f"Grounded in active {schema} schema knowledge graph and context.",
-                    "data": [f"Domain: {schema}", f"Model: {msg.get('model_used', 'gemini-2.5-flash')}"]
+                    "data": [f"Domain: {schema}", f"Model: {model_name}"]
                 }]
-            if "total_steps" not in meta:
+            if "total_steps" not in meta or meta.get("total_steps") is None:
                 meta["total_steps"] = 1
-            if "duration_ms" not in meta:
+            if "duration_ms" not in meta or meta.get("duration_ms") is None:
                 meta["duration_ms"] = 0
-            if "model_used" not in meta:
-                meta["model_used"] = msg.get("model_used", "gemini-2.5-flash")
+            meta["model_used"] = model_name
             msg["metadata"] = meta
     return {"messages": raw_messages}
 
