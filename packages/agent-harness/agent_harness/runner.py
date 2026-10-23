@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from google.adk import Agent
 
@@ -26,6 +26,7 @@ from agent_harness.context_engine import ContextEngine, CanonicalMessage, Role
 from agent_harness.memory import MemoryManager
 from agent_harness.reflection import ReflectionLoop
 from agent_harness.skills.models import Skill
+from agent_harness.skills.registry import SkillRegistry
 
 try:
     from guardrails import GuardrailEngine, TokenMap
@@ -131,6 +132,7 @@ class AgentRunner:
         context: Optional[ContextEngine] = None,
         gateway: Optional[Any] = None,
         guardrails: Optional[Any] = None,
+        skill_registry: Optional[SkillRegistry] = None,
         **kwargs: Any,
     ) -> None:
         self.config = config or RunnerConfig()
@@ -139,6 +141,14 @@ class AgentRunner:
         self.reflection = reflection or ReflectionLoop()
         self.gateway = gateway
         self.guardrails = guardrails
+        self.skill_registry = skill_registry
+        if self.skill_registry is None:
+            try:
+                self.skill_registry = SkillRegistry()
+                self.skill_registry.load_directory()
+            except Exception as e:
+                logger.warning(f"Could not initialize default SkillRegistry in runner: {e}")
+
         if self.guardrails is None and GuardrailEngine is not None and self.config.enable_guardrails:
             try:
                 self.guardrails = GuardrailEngine()
@@ -147,6 +157,72 @@ class AgentRunner:
 
         # Track tool call history for infinite loop detection
         self._recent_tool_calls: list[str] = []
+
+    def _build_auto_skill_instruction(self) -> str:
+        """
+        Assemble dynamic skill catalog and specialized persona guidelines for native in-agent selection.
+        Enables the agent to intelligently select and adhere to operational skill structures without
+        pre-flight latency or extra vector stores.
+        """
+        skills = self.skill_registry.list_all() if self.skill_registry else []
+        catalog_lines = []
+        for s in skills:
+            catalog_lines.append(f"- **{s['name']}**: {s['description']}")
+        catalog_str = "\n".join(catalog_lines) if catalog_lines else "- knowledge_qa: Grounded factual Q&A"
+
+        return (
+            "You are an expert cognitive knowledge agent equipped with a dynamic library of specialized operational skills.\n\n"
+            f"### Available Specialized Skills:\n{catalog_str}\n\n"
+            "### Dynamic Skill Adoption Directives:\n"
+            "In your initial reasoning step, evaluate the user query and dynamically adopt the most appropriate skill guidelines:\n"
+            "1. **Clinical Patient Profile**: If the query asks about a patient's medical history, condition, medications, or clinical profile, adopt **clinical_summary**. You MUST structure your answer into 5 clear markdown sections:\n"
+            "   - ### 1. Patient Demographics\n"
+            "   - ### 2. Active Medications (pharmaceutical drugs only; never put diagnoses here)\n"
+            "   - ### 3. Diagnoses (medical conditions/diseases only)\n"
+            "   - ### 4. Recent Lab Results\n"
+            "   - ### 5. Risk Flags (contraindications or abnormal findings)\n"
+            "2. **Structured Reports & Analytical Synthesis**: If the query requests a report, executive overview, or comprehensive analysis, adopt **report_generation**. You MUST structure your answer into:\n"
+            "   - **Executive Summary**\n"
+            "   - **Data Overview**\n"
+            "   - **Key Findings**\n"
+            "   - **Detailed Analysis** (using Markdown tables)\n"
+            "   - **Recommendations**\n"
+            "3. **Financial Anomalies & Fraud**: If the query investigates suspicious transactions, compliance breaches, or entity networks, adopt **fraud_detection** with anomaly scoring and risk indicators.\n"
+            "4. **ETL & Data Ingestion**: If the query involves data pipelines, schema validation, or onboarding, adopt **data_ingestion**.\n"
+            "5. **Factual Q&A**: For general knowledge questions, lookups, and traversals, adopt **knowledge_qa**.\n\n"
+            "State your chosen skill in your thinking process (e.g., 'Skill: clinical_summary') before executing."
+        )
+
+    def _build_instruction(self, session_id: Optional[str] = None) -> str:
+        """
+        Assemble comprehensive agent instruction:
+        - Active skill prompt (if explicitly selected) OR dynamic auto-skill catalog (Approach 2)
+        - Distilled historical context
+        - Tool calling efficiency rules
+        """
+        skill = self.config.active_skill
+        if skill:
+            base_instruction = skill.system_prompt
+        else:
+            base_instruction = self._build_auto_skill_instruction()
+
+        # Retrieve and inject distilled historical memory if available
+        if self.config.enable_semantic_distillation:
+            distilled_state = self.context.get_distilled_state(session_id)
+            if distilled_state:
+                base_instruction += f"\n\n{distilled_state.to_markdown()}"
+                logger.info(f"Assembled prompt with distilled memory state ({len(distilled_state.confirmed_findings)} findings)")
+
+        if not self.config.bypass_graph_tools:
+            base_instruction += (
+                "\n\nTool Calling Efficiency Rule: Retrieve all necessary entities and attributes "
+                "in a single comprehensive tool call (e.g. execute_cypher with LIMIT 50 or semantic_search with top_k=5) "
+                "rather than issuing multiple small probing queries."
+            )
+        else:
+            base_instruction += "\nProvide a direct, helpful, and comprehensive answer without querying domain databases."
+
+        return base_instruction
 
     async def run(self, query: str, session_id: Optional[str] = None) -> RunResult:
         """
@@ -222,16 +298,7 @@ class AgentRunner:
 
         # 4. Agent execution loop
         step_start = time.monotonic()
-        instruction = "You are a helpful knowledge assistant."
-        if skill:
-            instruction = skill.system_prompt
-
-        # Retrieve and inject distilled historical memory if available
-        if self.config.enable_semantic_distillation:
-            distilled_state = self.context.get_distilled_state(session_id)
-            if distilled_state:
-                instruction += f"\n\n{distilled_state.to_markdown()}"
-                logger.info(f"Assembled prompt with distilled memory state ({len(distilled_state.confirmed_findings)} findings)")
+        instruction = self._build_instruction(session_id=session_id)
 
         mechanic_history_len_before = 0
         try:
@@ -402,6 +469,235 @@ class AgentRunner:
         )
 
         return result
+
+    async def run_stream(
+        self, query: str, session_id: Optional[str] = None
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """
+        Stream agent execution events in real time.
+
+        Yields:
+        - {"type": "thought", "message": "..."}
+        - {"type": "action", "step": N, "tool": "...", "input": {...}, "message": "..."}
+        - {"type": "observation", "step": N, "tool": "...", "output": {...}, "message": "..."}
+        - {"type": "token", "text": "..."}
+        - {"type": "done", "response": "...", "total_steps": N, "duration_ms": M, ...}
+        """
+        start_time = time.monotonic()
+        self._recent_tool_calls.clear()
+
+        yield {"type": "thought", "message": "Evaluating query with Presidio PII & security guardrails..."}
+
+        # 1. Input Guardrails
+        token_map = None
+        prompt_query = query
+        pii_entities_masked = 0
+        if self.guardrails and self.config.enable_guardrails:
+            try:
+                guard_res = self.guardrails.guard_input(query)
+                prompt_query = guard_res.masked_text
+                token_map = guard_res.token_map
+                pii_entities_masked = guard_res.pii_entities_found
+                if not guard_res.is_safe:
+                    yield {"type": "error", "message": f"Query rejected: {guard_res.blocked_reason or 'Input safety violation'}"}
+                    return
+            except Exception as e:
+                yield {"type": "error", "message": f"Query rejected by safety guardrail: {e}"}
+                return
+
+        # 2. Canonical message
+        self.context.add_message(CanonicalMessage(
+            role=Role.USER,
+            content=prompt_query,
+            session_id=session_id,
+        ))
+
+        # 3. Retrieve relevant memory
+        yield {"type": "thought", "message": "Retrieving relevant conversational memory & active schema..."}
+        if self.config.enable_memory:
+            try:
+                memories = await self.memory.recall(prompt_query, limit=3)
+                if memories:
+                    yield {"type": "thought", "message": f"Recalled {len(memories)} relevant historical memory context(s)."}
+            except Exception:
+                pass
+
+        # 4. Instructions & Agent Setup
+        skill = self.config.active_skill
+        if not skill:
+            yield {"type": "thought", "message": "Evaluating query to dynamically select and adopt specialized skill..."}
+
+        instruction = self._build_instruction(session_id=session_id)
+        yield {"type": "thought", "message": f"Engaging reasoning engine with {self.config.active_model}..."}
+
+        step_idx = 1
+        result_steps: list[StepResult] = []
+        accumulated_chunks: list[str] = []
+
+        try:
+            from google.adk.runners import InMemoryRunner
+            from google.genai import types
+            from mcp_servers.graph_server import execute_cypher
+            from mcp_servers.retrieval_server import semantic_search
+
+            tools = []
+            if not self.config.bypass_graph_tools:
+                tools = [execute_cypher, semantic_search]
+
+            agent = Agent(
+                name="ckp_agent",
+                model=self.config.active_model or "gemini-2.5-flash",
+                instruction=instruction,
+                tools=tools,
+            )
+            runner = InMemoryRunner(agent=agent)
+            session = await runner.session_service.get_session(
+                app_name=runner.app_name,
+                user_id="user_default",
+                session_id=session_id or "default_session",
+            )
+            if not session:
+                session = await runner.session_service.create_session(
+                    app_name=runner.app_name,
+                    user_id="user_default",
+                    session_id=session_id or "default_session",
+                )
+
+            async for ev in runner.run_async(
+                user_id="user_default",
+                session_id=session.id,
+                new_message=types.UserContent(parts=[types.Part(text=prompt_query)]),
+            ):
+                fcalls = ev.get_function_calls() if hasattr(ev, "get_function_calls") else []
+                if not fcalls and hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                    fcalls = [p.function_call for p in ev.content.parts if hasattr(p, "function_call") and p.function_call]
+
+                fresps = ev.get_function_responses() if hasattr(ev, "get_function_responses") else []
+                if not fresps and hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                    fresps = [p.function_response for p in ev.content.parts if hasattr(p, "function_response") and p.function_response]
+
+                for fc in fcalls:
+                    tool_input = dict(fc.args) if hasattr(fc, "args") and fc.args else {}
+                    step_obj = StepResult(
+                        step_index=step_idx,
+                        action="tool_call",
+                        tool_name=fc.name,
+                        tool_input=tool_input,
+                        duration_ms=0.0,
+                    )
+                    result_steps.append(step_obj)
+
+                    query_preview = ""
+                    if "query" in tool_input:
+                        query_preview = f": {tool_input['query'][:70]}..."
+                    yield {
+                        "type": "action",
+                        "step": step_idx,
+                        "tool": fc.name,
+                        "input": tool_input,
+                        "message": f"Step {step_idx}: Executing {fc.name}{query_preview}",
+                    }
+                    step_idx += 1
+
+                for fr in fresps:
+                    resp_val = fr.response if hasattr(fr, "response") else {}
+                    for prev_step in reversed(result_steps):
+                        if prev_step.tool_name == fr.name and prev_step.tool_output is None:
+                            prev_step.tool_output = resp_val
+                            break
+                    count_summary = ""
+                    if isinstance(resp_val, list):
+                        count_summary = f" — retrieved {len(resp_val)} items"
+                    elif isinstance(resp_val, dict):
+                        inner = resp_val.get("output", resp_val.get("result", []))
+                        if isinstance(inner, list):
+                            count_summary = f" — retrieved {len(inner)} items"
+                    yield {
+                        "type": "observation",
+                        "step": step_idx - 1,
+                        "tool": fr.name,
+                        "output": resp_val,
+                        "message": f"Completed {fr.name}{count_summary}",
+                    }
+
+                if hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                    for p in ev.content.parts:
+                        if hasattr(p, "text") and p.text:
+                            accumulated_chunks.append(p.text)
+                            yield {
+                                "type": "token",
+                                "text": p.text,
+                            }
+
+            response_text = "".join(accumulated_chunks)
+            if not response_text:
+                response_text = "Analysis complete, but no response text was returned."
+
+        except Exception as e:
+            logger.error(f"Agent streaming error: {e}")
+            yield {"type": "error", "message": f"Agent execution error: {e}"}
+            return
+
+        # 5. Output guardrails
+        yield {"type": "thought", "message": "Evaluating output groundedness and safety verification..."}
+        groundedness_score = 0.0
+        if self.guardrails and self.config.enable_guardrails and response_text:
+            try:
+                out_res = self.guardrails.guard_output(
+                    response=response_text,
+                    context_chunks=[],
+                    token_map=token_map,
+                    rehydrate=self.config.rehydrate_output,
+                )
+                groundedness_score = out_res.groundedness_score
+                response_text = out_res.final_response
+            except Exception as e:
+                logger.warning(f"Output guardrail check failed: {e}")
+
+        # 6. Save in canonical context
+        total_duration = (time.monotonic() - start_time) * 1000
+        self.context.add_message(CanonicalMessage(
+            role=Role.ASSISTANT,
+            content=response_text,
+            session_id=session_id,
+            model_used=self.config.active_model,
+            metadata={
+                "model_used": self.config.active_model,
+                "total_steps": len(result_steps) + 1,
+                "duration_ms": total_duration,
+            },
+        ))
+
+        # 7. Persist to memory
+        if self.config.enable_memory and response_text:
+            try:
+                await self.memory.store(
+                    query=query,
+                    response=response_text,
+                    session_id=session_id,
+                )
+            except Exception:
+                pass
+
+        yield {
+            "type": "done",
+            "response": response_text,
+            "total_steps": len(result_steps) + 1,
+            "duration_ms": total_duration,
+            "model_used": self.config.active_model,
+            "groundedness_score": groundedness_score,
+            "steps": [
+                {
+                    "step_index": s.step_index,
+                    "action": s.action,
+                    "tool_name": s.tool_name,
+                    "tool_input": s.tool_input,
+                    "tool_output": s.tool_output,
+                    "mechanic_repaired": getattr(s, "mechanic_repaired", False),
+                }
+                for s in result_steps
+            ],
+        }
 
     def _detect_infinite_loop(self, step: StepResult) -> bool:
         """Detect if the agent is stuck in an infinite loop of identical tool calls."""

@@ -96,6 +96,11 @@ async def execute_cypher(
     The Mechanic automatically intercepts, repairs, and retries the query seamlessly.
     Only MATCH/RETURN/WHERE/ORDER BY/LIMIT operations are allowed.
 
+    Best Practice:
+        Formulate comprehensive, single-shot queries with an appropriate LIMIT (e.g. LIMIT 50)
+        or aggregations to retrieve all needed entities and attributes in one step.
+        Avoid exploratory probing with small limits followed by repeating the same query.
+
     Args:
         query: A Cypher query string (read-only).
         params: Optional dictionary of query parameters.
@@ -105,7 +110,7 @@ async def execute_cypher(
         A list of result records as dictionaries.
 
     Example:
-        execute_cypher("MATCH (p:Patient) RETURN p.name, p.patient_id LIMIT 10")
+        execute_cypher("MATCH (p:Patient) RETURN p LIMIT 50")
     """
     driver: AsyncDriver = get_driver()
     logger.info(f"Executing Cypher: {query[:100]}...")

@@ -103,7 +103,9 @@ class ModelCascadeRouter:
         self._tier2_keywords = re.compile(
             r"\b(compare|contrast|difference between|analyze|correlation|evaluate|"
             r"break down|relationship between|why does|explain how|summarize trends|"
-            r"pros and cons|aggregate|inspect)\b",
+            r"pros and cons|aggregate|inspect|deduce|deduction|deductions|report|"
+            r"expert|clinical review|clinical assessment|synthesize findings|"
+            r"implications|recommendations|recommend)\b",
             re.IGNORECASE,
         )
         self._tier1_keywords = re.compile(
@@ -172,14 +174,14 @@ class ModelCascadeRouter:
 
         # Check Tier 2 signals
         tier2_matches = self._tier2_keywords.findall(clean_query)
-        if len(tier2_matches) >= 1 or (word_count >= 30 and not has_multi_step) or has_multi_step:
+        if len(tier2_matches) >= 1 or (word_count >= 25 and not has_multi_step) or has_multi_step:
             reasons = []
             if tier2_matches:
                 reasons.append(f"analytical comparison signals ({', '.join(tier2_matches[:2])})")
             if has_multi_step:
                 reasons.append("multi-step structured inquiry")
-            if word_count >= 30:
-                reasons.append("moderate context size (30+ words)")
+            if word_count >= 25:
+                reasons.append("moderate context size (25+ words)")
             return ComplexityTier.TIER_2, f"Classified Tier 2 Analytical: {'; '.join(reasons)}"
 
         # Default to Tier 1
