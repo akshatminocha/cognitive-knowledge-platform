@@ -229,15 +229,31 @@ export default function MonitoringPage() {
               </thead>
               <tbody>
                 {logs.map((log) => {
-                  const dateStr = new Date(log.timestamp).toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                  });
+                  const d = new Date(log.timestamp);
+                  const isValid = !isNaN(d.getTime());
+                  const datePart = isValid
+                    ? d.toLocaleDateString([], {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                      })
+                    : log.timestamp;
+                  const timePart = isValid
+                    ? d.toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                      })
+                    : '';
 
                   return (
                     <tr key={log.call_id}>
-                      <td className="cell-timestamp">{dateStr}</td>
+                      <td className="cell-timestamp" title={log.timestamp}>
+                        <div className="timestamp-wrapper">
+                          <span className="timestamp-date">{datePart}</span>
+                          <span className="timestamp-time">{timePart}</span>
+                        </div>
+                      </td>
                       <td className="cell-prompt" title={log.prompt_preview}>
                         {log.prompt_preview || '—'}
                       </td>

@@ -2,10 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, Package, Trash2, Send, Brain, User, Settings2, Zap, Clock, 
   Cpu, Activity, FileText, Search, Network, Database, Layers, Sparkles, 
-  ArrowRightLeft, Globe, Wrench, UploadCloud, Download, CheckCircle2, AlertCircle, X, FileArchive 
+  ArrowRightLeft, Globe, Wrench, UploadCloud, Download, CheckCircle2, AlertCircle, X, FileArchive, Plus, Table, Loader2 
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { queryAgent, getSkills, listSessions, getSession, deleteSession, exportUKA, importUKA } from '../api/client';
+import { queryAgent, streamAgentQuery, getSkills, listSessions, getSession, deleteSession, exportUKA, importUKA } from '../api/client';
 import './ChatPage.css';
 
 export default function ChatPage() {
@@ -31,7 +31,28 @@ export default function ChatPage() {
 
   useEffect(() => { 
     getSkills().then(setSkills); 
-    listSessions().then(setSessions);
+    listSessions().then(sessionList => {
+      setSessions(sessionList);
+      const savedSid = localStorage.getItem('ckp_active_session_id');
+      if (savedSid) {
+        setSessionId(savedSid);
+        getSession(savedSid).then(msgs => {
+          if (msgs && msgs.length > 0) {
+            const formattedMsgs = msgs
+              .filter(m => m.role !== 'system')
+              .map(m => ({
+                role: m.role,
+                content: m.content,
+                metadata: m.metadata || {},
+                ts: Date.parse(m.timestamp) || Date.now()
+              }));
+            setMessages(formattedMsgs);
+          }
+        }).catch(() => {});
+      } else if (sessionList.length > 0) {
+        handleSessionClick(sessionList[0].session_id);
+      }
+    });
   }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -62,8 +83,9 @@ export default function ChatPage() {
   };
 
   const handleSessionClick = async (sid) => {
-    if (sessionId === sid) return;
+    if (sessionId === sid && messages.length > 0) return;
     setSessionId(sid);
+    localStorage.setItem('ckp_active_session_id', sid);
     setLoading(true);
     try {
       const msgs = await getSession(sid);
@@ -88,10 +110,11 @@ export default function ChatPage() {
     try {
       await deleteSession(sid);
       if (sessionId === sid) {
-        setSessionId(null);
-        setMessages([]);
+        localStorage.removeItem('ckp_active_session_id');
+        clearChat();
       }
-      listSessions().then(setSessions);
+      const updated = await listSessions();
+      setSessions(updated);
     } catch (err) {
       console.error("Failed to delete session:", err);
     }
@@ -105,35 +128,181 @@ export default function ChatPage() {
     setMessages(prev => [...prev, userMsg]);
     setLoading(true);
 
+    const initialAssistantMsg = {
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      thoughts: [],
+      metadata: null,
+      ts: Date.now(),
+    };
+    setMessages(prev => [...prev, initialAssistantMsg]);
+
     try {
-      const result = await queryAgent(q, sessionId, 'healthtech', activeSkill, activeModel);
-      const assistantMsg = {
-        role: 'assistant',
-        content: result.response || 'No response.',
-        metadata: {
-          model_used: result.model_used,
-          total_steps: result.total_steps,
-          duration_ms: result.duration_ms,
-          tools_used: result.tools_used || [],
-          sources: result.sources || [],
-          smart_routed: result.smart_routed,
-          complexity_tier: result.complexity_tier,
-          intent: result.intent,
-          estimated_cost_tier: result.estimated_cost_tier,
-          routing_reason: result.routing_reason,
-          cascade_fallback: result.cascade_fallback,
-          cascade_reason: result.cascade_reason,
-          mechanic_repairs: result.mechanic_repairs || 0,
-        },
-        ts: Date.now(),
+      let accumulatedContent = '';
+      let thoughtsList = [];
+      let tempMetadata = {
+        model_used: activeModel === 'auto' ? 'gemini-2.5-flash' : activeModel,
+        smart_routed: activeModel === 'auto',
       };
-      setMessages(prev => [...prev, assistantMsg]);
-      if (result.session_id) {
-        setSessionId(result.session_id);
-        listSessions().then(setSessions); // Refresh session list
-      }
+
+      await streamAgentQuery(
+        q,
+        sessionId,
+        'healthtech',
+        activeSkill,
+        activeModel,
+        (event) => {
+          if (!event) return;
+
+          if (event.type === 'intent') {
+            tempMetadata = {
+              ...tempMetadata,
+              model_used: event.model || tempMetadata.model_used,
+              complexity_tier: event.tier,
+              intent: event.intent,
+              smart_routed: event.smart_routed,
+              routing_reason: event.routing_reason,
+              estimated_cost_tier: event.estimated_cost_tier,
+              cascade_fallback: event.cascade_fallback,
+              cascade_reason: event.cascade_reason,
+            };
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.metadata = { ...tempMetadata };
+              }
+              return next;
+            });
+          } else if (event.type === 'thought') {
+            thoughtsList = [...thoughtsList, { type: 'thought', message: event.message, ts: Date.now() }];
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.thoughts = [...thoughtsList];
+              }
+              return next;
+            });
+          } else if (event.type === 'action') {
+            thoughtsList = [...thoughtsList, { type: 'action', tool: event.tool, input: event.input, message: event.message, step: event.step }];
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.thoughts = [...thoughtsList];
+              }
+              return next;
+            });
+          } else if (event.type === 'observation') {
+            thoughtsList = [...thoughtsList, { type: 'observation', tool: event.tool, message: event.message, step: event.step }];
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.thoughts = [...thoughtsList];
+              }
+              return next;
+            });
+          } else if (event.type === 'token') {
+            accumulatedContent += (event.text || '');
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.content = accumulatedContent;
+              }
+              return next;
+            });
+          } else if (event.type === 'complete' || event.type === 'done') {
+            if (event.response && !accumulatedContent) {
+              accumulatedContent = event.response;
+            }
+            const finalMeta = {
+              ...tempMetadata,
+              model_used: event.model_used || tempMetadata.model_used,
+              total_steps: event.total_steps || thoughtsList.length + 1,
+              duration_ms: event.duration_ms || 0,
+              sources: event.sources || [],
+              complexity_tier: event.complexity_tier || tempMetadata.complexity_tier,
+              intent: event.intent || tempMetadata.intent,
+              smart_routed: event.smart_routed !== undefined ? event.smart_routed : tempMetadata.smart_routed,
+              routing_reason: event.routing_reason || tempMetadata.routing_reason,
+            };
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.content = accumulatedContent || last.content || 'Response complete.';
+                last.isStreaming = false;
+                last.thoughts = [...thoughtsList];
+                last.metadata = finalMeta;
+              }
+              return next;
+            });
+            if (event.session_id) {
+              setSessionId(event.session_id);
+              localStorage.setItem('ckp_active_session_id', event.session_id);
+              listSessions().then(setSessions);
+            }
+          } else if (event.type === 'error') {
+            setMessages(prev => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last && last.role === 'assistant') {
+                last.content = `Error: ${event.message}`;
+                last.isStreaming = false;
+              }
+              return next;
+            });
+          }
+        }
+      );
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err.message}`, ts: Date.now() }]);
+      console.warn("Streaming error, falling back to batch query:", err);
+      try {
+        const result = await queryAgent(q, sessionId, 'healthtech', activeSkill, activeModel);
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last && last.role === 'assistant') {
+            last.content = result.response || 'No response.';
+            last.isStreaming = false;
+            last.metadata = {
+              model_used: result.model_used,
+              total_steps: result.total_steps,
+              duration_ms: result.duration_ms,
+              tools_used: result.tools_used || [],
+              sources: result.sources || [],
+              smart_routed: result.smart_routed,
+              complexity_tier: result.complexity_tier,
+              intent: result.intent,
+              estimated_cost_tier: result.estimated_cost_tier,
+              routing_reason: result.routing_reason,
+              cascade_fallback: result.cascade_fallback,
+              cascade_reason: result.cascade_reason,
+              mechanic_repairs: result.mechanic_repairs || 0,
+            };
+          }
+          return next;
+        });
+        if (result.session_id) {
+          setSessionId(result.session_id);
+          localStorage.setItem('ckp_active_session_id', result.session_id);
+          listSessions().then(setSessions);
+        }
+      } catch (fallbackErr) {
+        setMessages(prev => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last && last.role === 'assistant') {
+            last.content = `Error: ${fallbackErr.message}`;
+            last.isStreaming = false;
+          }
+          return next;
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -147,6 +316,7 @@ export default function ChatPage() {
       ? crypto.randomUUID()
       : 'sess-' + Math.random().toString(36).substring(2, 10);
     setSessionId(newSid);
+    localStorage.setItem('ckp_active_session_id', newSid);
   };
 
   const exportChat = () => {
@@ -166,8 +336,21 @@ export default function ChatPage() {
   return (
     <div className="chat-layout">
       <div className="chat-sidebar glass-card">
-        <h3 className="sidebar-heading">Conversations</h3>
-        <div className="session-list">
+        <div className="sidebar-top-section" style={{ marginBottom: '14px' }}>
+          <div className="sidebar-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <h3 className="sidebar-heading" style={{ margin: 0, paddingBottom: 0, borderBottom: 'none' }}>Conversations</h3>
+          </div>
+          <button 
+            className="btn btn-primary" 
+            style={{ width: '100%', justifyContent: 'center', gap: '8px' }} 
+            onClick={clearChat}
+            title="Start a new chat conversation"
+          >
+            <Plus size={16} /> New Session
+          </button>
+        </div>
+
+        <div className="session-list" style={{ flex: 1, overflowY: 'auto' }}>
           {sessionId && !sessions.some(s => s.session_id === sessionId) && (
             <div className="session-item active" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -207,10 +390,8 @@ export default function ChatPage() {
             })
           )}
         </div>
-        <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--glass-border)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={clearChat}>
-            <MessageSquare size={16} /> New Session
-          </button>
+
+        <div style={{ marginTop: 'auto', paddingTop: '1rem', borderTop: '1px solid var(--glass-border)' }}>
           <button 
             className="btn btn-secondary uka-import-sidebar-btn" 
             style={{ width: '100%', justifyContent: 'center', background: 'var(--bg-card)' }} 
@@ -287,15 +468,59 @@ export default function ChatPage() {
                 {msg.role === 'user' ? <User size={20} /> : <Brain size={20} />}
               </div>
               <div className="chat-bubble-body">
+                {msg.role === 'assistant' && msg.thoughts && msg.thoughts.length > 0 && (
+                  <details className="chat-thinking-box" open={msg.isStreaming || false}>
+                    <summary className="chat-thinking-summary">
+                      <span className="thinking-title">
+                        {msg.isStreaming ? (
+                          <Loader2 size={13} className="thinking-spinner" />
+                        ) : (
+                          <Brain size={13} className="thinking-icon" />
+                        )}
+                        <span>
+                          {msg.isStreaming ? 'Reasoning & Fetching Evidence...' : `Reasoning Trace (${msg.thoughts.length} step${msg.thoughts.length > 1 ? 's' : ''})`}
+                        </span>
+                      </span>
+                      <span className="thinking-status-tag">
+                        {msg.isStreaming ? 'Streaming' : 'Audit'}
+                      </span>
+                    </summary>
+                    <div className="chat-thinking-content">
+                      {msg.thoughts.map((th, tIdx) => (
+                        <div key={tIdx} className={`thinking-step-row ${th.type}`}>
+                          {th.type === 'action' ? (
+                            <Network size={12} className="thinking-step-icon action" />
+                          ) : th.type === 'observation' ? (
+                            <CheckCircle2 size={12} className="thinking-step-icon observation" />
+                          ) : (
+                            <Zap size={12} className="thinking-step-icon thought" />
+                          )}
+                          <span className="thinking-step-text">{th.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
                 <div className="chat-bubble-content markdown-body">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  {msg.content ? (
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  ) : msg.isStreaming ? (
+                    <div className="streaming-placeholder">
+                      <span className="streaming-pulse-dot"></span>
+                      <span>Formulating response...</span>
+                    </div>
+                  ) : (
+                    <p className="text-muted">No response content.</p>
+                  )}
+                  {msg.isStreaming && msg.content && <span className="streaming-cursor">▍</span>}
                 </div>
                 {msg.role === 'assistant' && msg.metadata && msg.metadata.total_steps != null && (
                   <div className="chat-bubble-meta">
                     <div className="flex-center gap-3 meta-stats" style={{ flexWrap: 'wrap' }}>
                       <span className="flex-center gap-1"><Zap size={14} className="text-muted" /> {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
                       <span className="flex-center gap-1"><Clock size={14} className="text-muted" /> {Math.round(msg.metadata.duration_ms)}ms</span>
-                      <span className="flex-center gap-1"><Cpu size={14} className="text-muted" /> {msg.metadata.model_used}</span>
+                      <span className="flex-center gap-1"><Cpu size={14} className="text-muted" /> {msg.metadata.model_used || 'gemini-2.5-flash'}</span>
                       {msg.metadata.smart_routed && (
                         <span className="smart-route-badge" title={msg.metadata.routing_reason || "Routed by AI Economics"}>
                           <Sparkles size={12} className="badge-icon" /> Auto ({msg.metadata.complexity_tier ? msg.metadata.complexity_tier.replace('_', ' ').toUpperCase() : 'SMART'})
@@ -342,7 +567,15 @@ export default function ChatPage() {
                               <details key={idx} className="chat-source-item" open>
                                 <summary className="chat-source-summary">
                                   <span className="source-label-wrapper">
-                                    {src.type === 'graph' ? <Network size={12} className="source-type-icon" /> : src.type === 'vector' ? <Search size={12} className="source-type-icon" /> : <Database size={12} className="source-type-icon" />}
+                                    {src.type === 'graph' ? (
+                                      <Network size={12} className="source-type-icon" />
+                                    ) : src.type === 'vector' ? (
+                                      <Search size={12} className="source-type-icon" />
+                                    ) : src.type === 'relational' || src.type === 'sql' ? (
+                                      <Table size={12} className="source-type-icon" />
+                                    ) : (
+                                      <Database size={12} className="source-type-icon" />
+                                    )}
                                     <span>{label}</span>
                                     {src.mechanic_repaired && (
                                       <span className="source-mechanic-badge" title="Query automatically corrected by The Mechanic">
@@ -375,7 +608,7 @@ export default function ChatPage() {
             </div>
           ))}
 
-          {loading && (
+          {loading && !messages.some(m => m.isStreaming) && (
             <div className="chat-bubble assistant">
               <div className="chat-bubble-avatar"><Brain size={20} /></div>
               <div className="chat-bubble-body">

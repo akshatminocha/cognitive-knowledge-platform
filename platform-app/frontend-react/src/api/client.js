@@ -16,6 +16,60 @@ export async function queryAgent(query, sessionId = null, schema = 'healthtech',
   });
 }
 
+export async function streamAgentQuery(
+  query,
+  sessionId = null,
+  schema = 'healthtech',
+  activeSkill = 'auto',
+  model = 'gemini-2.5-flash',
+  onEvent = () => {}
+) {
+  const res = await fetch(`${API_BASE}/query/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query,
+      session_id: sessionId,
+      schema_name: schema,
+      active_skill: activeSkill,
+      model,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n\n');
+    buffer = lines.pop() || '';
+
+    for (const chunk of lines) {
+      const trimmed = chunk.trim();
+      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      const payloadStr = trimmed.slice(6);
+      if (payloadStr === '[DONE]') {
+        onEvent({ type: 'stream_done' });
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(payloadStr);
+        onEvent(parsed);
+      } catch (err) {
+        console.warn('Failed to parse SSE payload:', payloadStr, err);
+      }
+    }
+  }
+}
+
 export async function ingestFile(file, schema = 'healthtech', chunkSize = 512, overlap = 64) {
   const form = new FormData();
   form.append('file', file);

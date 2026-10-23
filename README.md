@@ -13,8 +13,10 @@ An enterprise-grade cognitive knowledge intelligence platform that transforms un
 - **Multimodal Ingestion Pipeline:** Native ingestion support for PPTX presentations, images (PNG/JPEG), audio recordings (WAV/MP3), and video (MP4) with specialized Slide, Table, and MediaMetadata chunking engines.
 - **Semantic Distillation & Infinite Memory Engine:** Rolling conversational compression maintaining `DistilledMemoryState` (key entities, confirmed decisions, constraints, open questions) with archival SQLite storage and optimized context windows.
 - **Zero-Trust Secret Scanner & 3-Boundary Governance:** Hybrid Shannon entropy ($H \ge 3.6$) combined with typo-tolerant, multi-permutation contextual credential detection (`password is`, `pwd:`, `pass -`) and Non-Maximum Suppression (NMS) entity span resolution.
-- **AI Economics & Cost Optimization:** Cost-aware model routing, semantic caching, per-request token budgets, and live telemetry tracking across LLM providers.
-- **Comprehensive Test Suite:** 111 / 111 passing automated unit, integration, guardrails, and UKA test suites (100% pass rate).
+- **Real-Time SSE Streaming & Thinking Trace UI:** Asynchronous SSE event streaming (`POST /api/v2/query/stream`) paired with a glassmorphic collapsible Reasoning Trace UI for real-time thought and tool feedback.
+- **In-Agent Native Skill Selection (Approach 2):** High-speed persona adoption directly inside the agent loop with 0ms pre-flight latency.
+- **Architectural Verification & Enterprise Audit:** Documented in [Executive Architectural Assessment (v3)](EXECUTIVE_ARCHITECTURAL_ASSESSMENT_v3.md) and [v3 Release Report](v3_release_report.md).
+- **Comprehensive Test Suite:** 115 / 115 passing automated unit, integration, guardrails, and UKA test suites (100% pass rate).
 
 ---
 

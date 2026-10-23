@@ -81,7 +81,7 @@ export default function Layout({ children }) {
             <div className="sidebar-version">
               <span className="sidebar-label">Version</span>
               <span style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem' }}>
-                v{health.version || '2.0.0'}
+                v{health.version || '3.0.0'}
               </span>
             </div>
           )}

@@ -249,6 +249,23 @@
   white-space: nowrap;
 }
 
+.timestamp-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timestamp-date {
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.timestamp-time {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
 .cell-prompt {
   max-width: 240px;
   overflow: hidden;
