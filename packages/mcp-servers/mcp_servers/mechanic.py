@@ -261,7 +261,7 @@ class TheMechanic:
         )
 
         try:
-            target_model = model or "gemini-2.5-flash"
+            target_model = model or "gemini-3-flash-preview"
             coro = self.gateway_client.completion(
                 model=target_model,
                 messages=[

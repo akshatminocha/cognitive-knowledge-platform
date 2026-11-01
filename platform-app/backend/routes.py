@@ -39,7 +39,7 @@ class QueryRequest(BaseModel):
     query: str = Field(description="The user's natural language question")
     session_id: Optional[str] = Field(default=None, description="Session ID for context continuity")
     schema_name: Optional[str] = Field(default="healthtech", description="Active domain schema")
-    model: Optional[str] = Field(default="gemini-2.5-flash", description="LLM model to use")
+    model: Optional[str] = Field(default="gemini-3-flash-preview", description="LLM model to use")
     active_skill: Optional[str] = Field(default="auto", description="Skill to execute, 'auto' for routing")
 
 
@@ -133,7 +133,7 @@ def resolve_routing_and_skill(request_body: QueryRequest, request: Request):
     else:
         from ai_gateway.router import RoutingDecision, ComplexityTier, RoutingIntent
         routing_decision = RoutingDecision(
-            selected_model=request_body.model or "gemini-2.5-flash",
+            selected_model=request_body.model or "gemini-3-flash-preview",
             tier=ComplexityTier.TIER_1,
             intent=RoutingIntent.GRAPH_RAG,
             reason="Gateway not attached to state, using default routing.",
@@ -460,7 +460,7 @@ async def get_session(session_id: str, request: Request):
                 meta.get("model_used")
                 or msg.get("model_used")
                 or getattr(request.app.state, "active_model", None)
-                or "gemini-2.5-flash"
+                or "gemini-3-flash-preview"
             )
             if not meta.get("sources"):
                 schema = meta.get("schema", "healthtech")
@@ -558,7 +558,7 @@ async def import_uka_bundle(
     )
 
     try:
-        result = importer.import_bundle(
+        result = await importer.import_bundle_async(
             bundle_path=tmp_file,
             target_session_id=session_id,
             verify_integrity=True,

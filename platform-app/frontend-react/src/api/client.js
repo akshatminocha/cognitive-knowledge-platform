@@ -9,7 +9,7 @@ async function fetchJSON(url, options = {}) {
   return res.json();
 }
 
-export async function queryAgent(query, sessionId = null, schema = 'healthtech', activeSkill = 'auto', model = 'gemini-2.5-flash') {
+export async function queryAgent(query, sessionId = null, schema = 'healthtech', activeSkill = 'auto', model = 'gemini-3.5-flash') {
   return fetchJSON(`${API_BASE}/query`, {
     method: 'POST',
     body: JSON.stringify({ query, session_id: sessionId, schema_name: schema, active_skill: activeSkill, model }),
@@ -21,7 +21,7 @@ export async function streamAgentQuery(
   sessionId = null,
   schema = 'healthtech',
   activeSkill = 'auto',
-  model = 'gemini-2.5-flash',
+  model = 'gemini-3.5-flash',
   onEvent = () => {}
 ) {
   const res = await fetch(`${API_BASE}/query/stream`, {

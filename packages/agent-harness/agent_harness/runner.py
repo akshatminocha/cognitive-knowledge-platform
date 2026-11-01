@@ -15,6 +15,7 @@ canonical state lives in the ContextEngine.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -56,7 +57,7 @@ class RunnerConfig:
     enable_guardrails: bool = True
     rehydrate_output: bool = True
     active_schema: str = "healthtech"
-    active_model: str = "gemini-2.5-flash"
+    active_model: str = "gemini-3-flash-preview"
     active_skill: Optional[Skill] = None
     bypass_graph_tools: bool = False
     intent: Optional[str] = None
@@ -210,7 +211,8 @@ class AgentRunner:
         if self.config.enable_semantic_distillation:
             distilled_state = self.context.get_distilled_state(session_id)
             if distilled_state:
-                base_instruction += f"\n\n{distilled_state.to_markdown()}"
+                mem_md = distilled_state.to_markdown().replace("{", "(").replace("}", ")")
+                base_instruction += f"\n\n{mem_md}"
                 logger.info(f"Assembled prompt with distilled memory state ({len(distilled_state.confirmed_findings)} findings)")
 
         if not self.config.bypass_graph_tools:
@@ -323,12 +325,40 @@ class AgentRunner:
 
             agent = Agent(
                 name="ckp_agent",
-                model=self.config.active_model or "gemini-2.5-flash",
+                model=self.config.active_model or "gemini-3-flash-preview",
                 instruction=instruction,
                 tools=tools
             )
             runner = InMemoryRunner(agent=agent)
-            events = await runner.run_debug(prompt_query, session_id=session_id or "default_session", quiet=True)
+            events = []
+            for attempt in range(3):
+                try:
+                    events = await runner.run_debug(prompt_query, session_id=session_id or "default_session", quiet=True)
+                    break
+                except Exception as adk_err:
+                    err_str = str(adk_err).lower()
+                    if "context variable not found" in err_str and attempt < 2:
+                        logger.warning(f"ADK context template collision detected. Stripping braces from prompt...")
+                        instruction = instruction.replace("{", "(").replace("}", ")")
+                        prompt_query = prompt_query.replace("{", "(").replace("}", ")")
+                        agent = Agent(name="ckp_agent", model=agent.model, instruction=instruction, tools=tools)
+                        runner = InMemoryRunner(agent=agent)
+                        continue
+                    elif ("429" in err_str or "503" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "unavailable" in err_str or "demand" in err_str) and attempt < 2:
+                        fallback_models = ["gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.5-flash"]
+                        curr_model = getattr(agent, "model", self.config.active_model)
+                        next_model = next((m for m in fallback_models if m != curr_model), "gemini-3.5-flash-lite")
+                        logger.warning(f"ADK Gemini transient issue ({err_str[:60]}) on {curr_model}. Cascading to {next_model} (attempt {attempt+1}/3)...")
+                        agent = Agent(
+                            name="ckp_agent",
+                            model=next_model,
+                            instruction=instruction,
+                            tools=tools
+                        )
+                        runner = InMemoryRunner(agent=agent)
+                        continue
+                    else:
+                        raise adk_err
             
             response_text = ""
             if events and events[-1].message and events[-1].message.parts:
@@ -546,7 +576,7 @@ class AgentRunner:
 
             agent = Agent(
                 name="ckp_agent",
-                model=self.config.active_model or "gemini-2.5-flash",
+                model=self.config.active_model or "gemini-3-flash-preview",
                 instruction=instruction,
                 tools=tools,
             )
@@ -563,11 +593,53 @@ class AgentRunner:
                     session_id=session_id or "default_session",
                 )
 
-            async for ev in runner.run_async(
-                user_id="user_default",
-                session_id=session.id,
-                new_message=types.UserContent(parts=[types.Part(text=prompt_query)]),
-            ):
+            async def _run_event_stream():
+                nonlocal agent, runner, session
+                for attempt in range(3):
+                    try:
+                        async for ev in runner.run_async(
+                            user_id="user_default",
+                            session_id=session.id,
+                            new_message=types.UserContent(parts=[types.Part(text=prompt_query)]),
+                        ):
+                            yield ev
+                        return
+                    except Exception as adk_err:
+                        err_str = str(adk_err).lower()
+                        if "context variable not found" in err_str and attempt < 2:
+                            logger.warning(f"ADK context template collision detected in stream. Stripping braces from prompt...")
+                            instruction = instruction.replace("{", "(").replace("}", ")")
+                            prompt_query = prompt_query.replace("{", "(").replace("}", ")")
+                            agent = Agent(name="ckp_agent", model=agent.model, instruction=instruction, tools=tools)
+                            runner = InMemoryRunner(agent=agent)
+                            session = await runner.session_service.create_session(
+                                app_name=runner.app_name,
+                                user_id="user_default",
+                                session_id=session_id or "default_session",
+                            )
+                            continue
+                        elif ("429" in err_str or "503" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "unavailable" in err_str or "demand" in err_str) and attempt < 2:
+                            fallback_models = ["gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.5-flash"]
+                            curr_model = getattr(agent, "model", self.config.active_model)
+                            next_model = next((m for m in fallback_models if m != curr_model), "gemini-3.5-flash-lite")
+                            logger.warning(f"ADK Gemini transient issue ({err_str[:60]}) on {curr_model}. Cascading to {next_model} (attempt {attempt+1}/3)...")
+                            agent = Agent(
+                                name="ckp_agent",
+                                model=next_model,
+                                instruction=instruction,
+                                tools=tools,
+                            )
+                            runner = InMemoryRunner(agent=agent)
+                            session = await runner.session_service.create_session(
+                                app_name=runner.app_name,
+                                user_id="user_default",
+                                session_id=session_id or "default_session",
+                            )
+                            continue
+                        else:
+                            raise adk_err
+
+            async for ev in _run_event_stream():
                 fcalls = ev.get_function_calls() if hasattr(ev, "get_function_calls") else []
                 if not fcalls and hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
                     fcalls = [p.function_call for p in ev.content.parts if hasattr(p, "function_call") and p.function_call]

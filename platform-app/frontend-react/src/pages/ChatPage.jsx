@@ -142,7 +142,7 @@ export default function ChatPage() {
       let accumulatedContent = '';
       let thoughtsList = [];
       let tempMetadata = {
-        model_used: activeModel === 'auto' ? 'gemini-2.5-flash' : activeModel,
+        model_used: activeModel === 'auto' ? 'gemini-3.5-flash' : activeModel,
         smart_routed: activeModel === 'auto',
       };
 
@@ -420,6 +420,7 @@ export default function ChatPage() {
             </select>
             <select value={activeModel} onChange={e => setActiveModel(e.target.value)} className="skill-select" title="Swap Model">
               <option value="auto">Auto (AI Economics)</option>
+              <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
               <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
               <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
               <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
@@ -520,7 +521,7 @@ export default function ChatPage() {
                     <div className="flex-center gap-3 meta-stats" style={{ flexWrap: 'wrap' }}>
                       <span className="flex-center gap-1"><Zap size={14} className="text-muted" /> {msg.metadata.total_steps} step{msg.metadata.total_steps !== 1 ? 's' : ''}</span>
                       <span className="flex-center gap-1"><Clock size={14} className="text-muted" /> {Math.round(msg.metadata.duration_ms)}ms</span>
-                      <span className="flex-center gap-1"><Cpu size={14} className="text-muted" /> {msg.metadata.model_used || 'gemini-2.5-flash'}</span>
+                      <span className="flex-center gap-1"><Cpu size={14} className="text-muted" /> {msg.metadata.model_used || 'gemini-3.5-flash'}</span>
                       {msg.metadata.smart_routed && (
                         <span className="smart-route-badge" title={msg.metadata.routing_reason || "Routed by AI Economics"}>
                           <Sparkles size={12} className="badge-icon" /> Auto ({msg.metadata.complexity_tier ? msg.metadata.complexity_tier.replace('_', ' ').toUpperCase() : 'SMART'})

@@ -90,7 +90,7 @@ class TestModelCascadeRouter:
         )
         assert isinstance(decision, RoutingDecision)
         assert decision.tier == ComplexityTier.TIER_2
-        assert decision.selected_model in ["gemini-2.5-pro", "gemini-2.5-flash", "gpt-4o-mini"]
+        assert decision.selected_model in ["gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gpt-4o-mini"]
         assert decision.original_requested_model == "auto"
 
     def test_graceful_cascade_missing_key(self, router: ModelCascadeRouter, monkeypatch):

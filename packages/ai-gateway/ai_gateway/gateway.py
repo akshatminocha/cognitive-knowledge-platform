@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -319,8 +320,18 @@ class GatewayClient:
 
         call_kwargs.update(kwargs)
 
-        response = await litellm.acompletion(**call_kwargs)
-        return response.model_dump()
+        for attempt in range(3):
+            try:
+                response = await litellm.acompletion(**call_kwargs)
+                return response.model_dump()
+            except Exception as e:
+                err_str = str(e).lower()
+                if ("rate" in err_str or "resource_exhausted" in err_str or "429" in err_str) and attempt < 2:
+                    wait_sec = 12 * (attempt + 1)
+                    logger.warning(f"Rate limit encountered on {model}. Retrying in {wait_sec}s (attempt {attempt+1}/3)...")
+                    await asyncio.sleep(wait_sec)
+                else:
+                    raise e
 
     # --- Observability & Diagnostics ---
 

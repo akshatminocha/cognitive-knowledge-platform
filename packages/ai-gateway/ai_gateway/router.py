@@ -53,12 +53,19 @@ class RoutingDecision:
 # Default model candidates per tier in order of preference
 TIER_MODELS: dict[ComplexityTier, list[str]] = {
     ComplexityTier.TIER_1: [
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
         "gemini-2.5-flash",
         "gemini/gemini-2.5-flash",
         "ollama/llama3.2",
         "gpt-4o-mini",
     ],
     ComplexityTier.TIER_2: [
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
         "gemini-2.5-pro",
         "gemini/gemini-2.5-pro",
         "gpt-4o-mini",
@@ -68,6 +75,9 @@ TIER_MODELS: dict[ComplexityTier, list[str]] = {
         "claude-3-5-sonnet",
         "anthropic/claude-3-5-sonnet-20241022",
         "gpt-4o",
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash-lite",
+        "gemini-3.5-flash",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
     ],
@@ -242,7 +252,7 @@ class ModelCascadeRouter:
                 return fallback_candidate, True, reason
 
         # Ultimate fallback
-        return "gemini-2.5-flash", True, "Defaulted to gemini-2.5-flash (no provider keys explicitly verified)"
+        return "gemini-3-flash-preview", True, "Defaulted to gemini-3-flash-preview (no provider keys explicitly verified)"
 
     def route_query(
         self,
