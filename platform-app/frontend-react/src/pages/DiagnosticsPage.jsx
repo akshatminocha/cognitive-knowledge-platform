@@ -45,7 +45,7 @@ export default function DiagnosticsPage() {
         <div className="diag-metric glass-card">
           <span className="diag-metric-label">Version</span>
           <span className="diag-metric-icon"><Package size={24} /></span>
-          <span className="diag-metric-value">v{health.version || '2.0.0'}</span>
+          <span className="diag-metric-value">v{health.version || '3.0.0'}</span>
         </div>
         <div className="diag-metric glass-card">
           <span className="diag-metric-label">Skills</span>

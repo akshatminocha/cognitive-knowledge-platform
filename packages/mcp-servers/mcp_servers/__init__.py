@@ -11,3 +11,7 @@ Graph queries are grounded by the Ontology Engine's dynamic schema.
 """
 
 __version__ = "0.1.0"
+
+from mcp_servers.mechanic import TheMechanic, get_mechanic
+
+__all__ = ["TheMechanic", "get_mechanic"]

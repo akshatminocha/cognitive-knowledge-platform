@@ -12,6 +12,7 @@ dependencies = [
     "sentence-transformers>=3.0",
     "ckp-ontology-engine",
     "ckp-guardrails",
+    "ckp-ai-gateway",
 ]
 
 [build-system]

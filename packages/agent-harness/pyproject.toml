@@ -9,6 +9,7 @@ dependencies = [
     "ckp-ai-gateway",
     "ckp-guardrails",
     "ckp-mcp-servers",
+    "ckp-uka-core",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "opentelemetry-api>=1.20",

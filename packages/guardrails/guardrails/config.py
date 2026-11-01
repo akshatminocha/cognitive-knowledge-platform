@@ -57,6 +57,14 @@ class DataProtectionConfig(BaseModel):
         default="[{entity_type}_{index}]",
         description="Format string for pseudonymized tokens",
     )
+    enable_secret_scanning: bool = Field(
+        default=True,
+        description="Enable detection and masking of API keys, passwords, and high-entropy secrets",
+    )
+    entropy_threshold: float = Field(
+        default=3.6,
+        description="Minimum Shannon entropy score to flag arbitrary secret tokens",
+    )
 
 
 class InputSafetyConfig(BaseModel):

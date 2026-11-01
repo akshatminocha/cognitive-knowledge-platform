@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # Qdrant connection settings (from environment)
 # ---------------------------------------------------------------------------
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 DEFAULT_COLLECTION = os.getenv("QDRANT_DEFAULT_COLLECTION", "knowledge_chunks")
 DEFAULT_VECTOR_SIZE = int(os.getenv("QDRANT_VECTOR_SIZE", "384"))  # all-MiniLM-L6-v2
 
@@ -76,17 +77,19 @@ mcp = FastMCP(
 # ---------------------------------------------------------------------------
 @mcp.tool()
 async def semantic_search(
-    query_vector: list[float],
+    query_vector: list[float] | None = None,
+    query: str | None = None,
     collection: str | None = None,
     limit: int = 5,
     score_threshold: float | None = None,
     metadata_filter: dict[str, Any] | None = None,
 ) -> list[dict]:
     """
-    Search for semantically similar chunks using a query vector.
+    Search for semantically similar chunks in the vector knowledge base.
 
     Args:
-        query_vector: The embedding vector to search with.
+        query_vector: The embedding vector to search with (optional if query text is provided).
+        query: Optional natural language query string to automatically embed and search.
         collection: Collection name (defaults to 'knowledge_chunks').
         limit: Maximum number of results (default 5).
         score_threshold: Minimum similarity score (0-1). None = no threshold.
@@ -94,16 +97,27 @@ async def semantic_search(
 
     Returns:
         A list of matching chunks with scores and metadata.
-
-    Example:
-        semantic_search(
-            query_vector=[0.1, 0.2, ...],
-            limit=5,
-            metadata_filter={"entity_type": "Patient"}
-        )
     """
     client: AsyncQdrantClient = get_client()
     target_collection = collection or DEFAULT_COLLECTION
+
+    # Resolve vector from query_vector or text query
+    vec = query_vector
+    if isinstance(query_vector, str):
+        query = query_vector
+        vec = None
+
+    if vec is None and query:
+        try:
+            from sentence_transformers import SentenceTransformer
+            if "embed_model" not in STATE:
+                STATE["embed_model"] = SentenceTransformer("all-MiniLM-L6-v2")
+            vec = STATE["embed_model"].encode([query])[0].tolist()
+        except Exception as e:
+            logger.warning(f"Local embedding failed: {e}")
+            vec = [0.0] * 384
+    elif vec is None:
+        vec = [0.0] * 384
 
     # Build filter if metadata_filter provided
     qdrant_filter = None
@@ -114,13 +128,24 @@ async def semantic_search(
         ]
         qdrant_filter = Filter(must=conditions)
 
-    results = await client.search(
-        collection_name=target_collection,
-        query_vector=query_vector,
-        limit=limit,
-        score_threshold=score_threshold,
-        query_filter=qdrant_filter,
-    )
+    if hasattr(client, "search"):
+        results = await client.search(
+            collection_name=target_collection,
+            query_vector=vec,
+            limit=limit,
+            score_threshold=score_threshold,
+            query_filter=qdrant_filter,
+        )
+    else:
+        # Modern qdrant-client (v1.11+) uses query_points
+        response = await client.query_points(
+            collection_name=target_collection,
+            query=vec,
+            limit=limit,
+            score_threshold=score_threshold,
+            query_filter=qdrant_filter,
+        )
+        results = response.points
 
     return [
         {

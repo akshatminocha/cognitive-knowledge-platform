@@ -17,6 +17,7 @@ import re
 from typing import Optional
 
 from guardrails.config import CustomEntityPattern, DataProtectionConfig, DomainType
+from guardrails.secret_scanner import SecretScanner
 from guardrails.token_map import TokenMap
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,10 @@ class DataProtector:
         self._analyzer: Optional[AnalyzerEngine] = None  # type: ignore[assignment]
         self._token_map = TokenMap(_format=self.config.mask_format)
         self._fallback_patterns = self._build_fallback_patterns()
+        self._secret_scanner = SecretScanner(
+            entropy_threshold=self.config.entropy_threshold,
+            enable_entropy_check=self.config.enable_secret_scanning,
+        )
 
         if PRESIDIO_AVAILABLE:
             self._init_presidio()
@@ -165,7 +170,7 @@ class DataProtector:
 
     def mask_text(self, text: str, token_map: Optional[TokenMap] = None) -> tuple[str, TokenMap]:
         """
-        Detect and mask PII/PHI entities in the text.
+        Detect and mask Secrets, Passwords, and PII/PHI entities in the text.
 
         Returns (masked_text, token_map) where token_map enables re-hydration.
         """
@@ -174,18 +179,55 @@ class DataProtector:
 
         tmap = token_map or TokenMap(_format=self.config.mask_format)
 
+        # 1. Mask API keys, passwords, and high-entropy secrets first
+        if self.config.enable_secret_scanning:
+            text, tmap = self._secret_scanner.mask_secrets(text, tmap)
+
+        # 2. Mask PII/PHI entities (Presidio or Regex fallback)
         if PRESIDIO_AVAILABLE and self._analyzer is not None:
             return self._mask_with_presidio(text, tmap)
         else:
             return self._mask_with_regex(text, tmap)
 
+    @staticmethod
+    def _resolve_overlapping_spans(results: list) -> list:
+        """
+        Filter overlapping recognizer results.
+        When two spans overlap, retain the one with higher score;
+        if scores are equal, retain the longer span.
+        """
+        if not results:
+            return []
+
+        # Sort primarily by score descending, then by length descending
+        sorted_by_priority = sorted(
+            results,
+            key=lambda r: (r.score, (r.end - r.start)),
+            reverse=True,
+        )
+
+        accepted = []
+        for candidate in sorted_by_priority:
+            overlaps = False
+            for chosen in accepted:
+                if max(candidate.start, chosen.start) < min(candidate.end, chosen.end):
+                    overlaps = True
+                    break
+            if not overlaps:
+                accepted.append(candidate)
+
+        return sorted(accepted, key=lambda r: r.start)
+
     def _mask_with_presidio(self, text: str, token_map: TokenMap) -> tuple[str, TokenMap]:
         """Mask using Presidio NER engine."""
-        results = self._analyzer.analyze(
+        raw_results = self._analyzer.analyze(
             text=text,
             language="en",
             score_threshold=self.config.score_threshold,
         )
+
+        # Resolve overlapping spans (e.g., URL recognized inside EMAIL_ADDRESS)
+        results = self._resolve_overlapping_spans(raw_results)
 
         # Sort by start position (reverse) to replace from end to start
         results = sorted(results, key=lambda r: r.start, reverse=True)
@@ -211,24 +253,36 @@ class DataProtector:
 
     def detect_entities(self, text: str) -> list[dict]:
         """
-        Detect PII entities without masking. Returns a list of findings.
+        Detect PII and Secret entities without masking. Returns a list of findings.
         Useful for UI display or audit logging.
         """
-        if not PRESIDIO_AVAILABLE or self._analyzer is None:
-            return []
+        findings: list[dict] = []
 
-        results = self._analyzer.analyze(
-            text=text,
-            language="en",
-            score_threshold=self.config.score_threshold,
-        )
-        return [
-            {
-                "entity_type": r.entity_type,
-                "start": r.start,
-                "end": r.end,
-                "score": round(r.score, 3),
-                "value": text[r.start : r.end],
-            }
-            for r in results
-        ]
+        # 1. Detect secrets & credentials
+        if self.config.enable_secret_scanning:
+            for s in self._secret_scanner.scan(text):
+                findings.append({
+                    "entity_type": s.secret_type,
+                    "start": s.start,
+                    "end": s.end,
+                    "score": round(s.confidence, 3),
+                    "value": s.value,
+                })
+
+        # 2. Detect PII/PHI via Presidio
+        if PRESIDIO_AVAILABLE and self._analyzer is not None:
+            raw_results = self._analyzer.analyze(
+                text=text,
+                language="en",
+                score_threshold=self.config.score_threshold,
+            )
+            results = self._resolve_overlapping_spans(raw_results)
+            for r in results:
+                findings.append({
+                    "entity_type": r.entity_type,
+                    "start": r.start,
+                    "end": r.end,
+                    "score": round(r.score, 3),
+                    "value": text[r.start : r.end],
+                })
+        return findings

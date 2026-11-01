@@ -15,10 +15,11 @@ canonical state lives in the ContextEngine.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from google.adk import Agent
 
@@ -26,6 +27,13 @@ from agent_harness.context_engine import ContextEngine, CanonicalMessage, Role
 from agent_harness.memory import MemoryManager
 from agent_harness.reflection import ReflectionLoop
 from agent_harness.skills.models import Skill
+from agent_harness.skills.registry import SkillRegistry
+
+try:
+    from guardrails import GuardrailEngine, TokenMap
+except ImportError:
+    GuardrailEngine = None  # type: ignore[assignment, misc]
+    TokenMap = None  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +54,17 @@ class RunnerConfig:
     max_tokens_per_step: int = DEFAULT_MAX_TOKENS_PER_STEP
     enable_reflection: bool = True
     enable_memory: bool = True
+    enable_guardrails: bool = True
+    rehydrate_output: bool = True
     active_schema: str = "healthtech"
-    active_model: str = "gemini-2.5-flash"
+    active_model: str = "gemini-3-flash-preview"
     active_skill: Optional[Skill] = None
+    bypass_graph_tools: bool = False
+    intent: Optional[str] = None
+    complexity_tier: Optional[str] = None
+    enable_semantic_distillation: bool = True
+    distillation_threshold_messages: int = 8
+    distillation_keep_recent_turns: int = 2
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +82,7 @@ class StepResult:
     response_text: Optional[str] = None
     duration_ms: float = 0.0
     error: Optional[str] = None
+    mechanic_repaired: bool = False
 
 
 @dataclass
@@ -83,6 +100,11 @@ class RunResult:
     model_used: str = ""
     was_reflected: bool = False
     error: Optional[str] = None
+    intent: Optional[str] = None
+    complexity_tier: Optional[str] = None
+    smart_routed: bool = False
+    routing_reason: Optional[str] = None
+    mechanic_repairs: int = 0
 
 
 class AgentRunner:
@@ -109,27 +131,114 @@ class AgentRunner:
         memory: Optional[MemoryManager] = None,
         reflection: Optional[ReflectionLoop] = None,
         context: Optional[ContextEngine] = None,
+        gateway: Optional[Any] = None,
+        guardrails: Optional[Any] = None,
+        skill_registry: Optional[SkillRegistry] = None,
         **kwargs: Any,
     ) -> None:
         self.config = config or RunnerConfig()
         self.context = context_engine or context or ContextEngine()
         self.memory = memory or MemoryManager()
         self.reflection = reflection or ReflectionLoop()
+        self.gateway = gateway
+        self.guardrails = guardrails
+        self.skill_registry = skill_registry
+        if self.skill_registry is None:
+            try:
+                self.skill_registry = SkillRegistry()
+                self.skill_registry.load_directory()
+            except Exception as e:
+                logger.warning(f"Could not initialize default SkillRegistry in runner: {e}")
+
+        if self.guardrails is None and GuardrailEngine is not None and self.config.enable_guardrails:
+            try:
+                self.guardrails = GuardrailEngine()
+            except Exception as e:
+                logger.warning(f"Failed to auto-init GuardrailEngine in runner: {e}")
 
         # Track tool call history for infinite loop detection
         self._recent_tool_calls: list[str] = []
+
+    def _build_auto_skill_instruction(self) -> str:
+        """
+        Assemble dynamic skill catalog and specialized persona guidelines for native in-agent selection.
+        Enables the agent to intelligently select and adhere to operational skill structures without
+        pre-flight latency or extra vector stores.
+        """
+        skills = self.skill_registry.list_all() if self.skill_registry else []
+        catalog_lines = []
+        for s in skills:
+            catalog_lines.append(f"- **{s['name']}**: {s['description']}")
+        catalog_str = "\n".join(catalog_lines) if catalog_lines else "- knowledge_qa: Grounded factual Q&A"
+
+        return (
+            "You are an expert cognitive knowledge agent equipped with a dynamic library of specialized operational skills.\n\n"
+            f"### Available Specialized Skills:\n{catalog_str}\n\n"
+            "### Dynamic Skill Adoption Directives:\n"
+            "In your initial reasoning step, evaluate the user query and dynamically adopt the most appropriate skill guidelines:\n"
+            "1. **Clinical Patient Profile**: If the query asks about a patient's medical history, condition, medications, or clinical profile, adopt **clinical_summary**. You MUST structure your answer into 5 clear markdown sections:\n"
+            "   - ### 1. Patient Demographics\n"
+            "   - ### 2. Active Medications (pharmaceutical drugs only; never put diagnoses here)\n"
+            "   - ### 3. Diagnoses (medical conditions/diseases only)\n"
+            "   - ### 4. Recent Lab Results\n"
+            "   - ### 5. Risk Flags (contraindications or abnormal findings)\n"
+            "2. **Structured Reports & Analytical Synthesis**: If the query requests a report, executive overview, or comprehensive analysis, adopt **report_generation**. You MUST structure your answer into:\n"
+            "   - **Executive Summary**\n"
+            "   - **Data Overview**\n"
+            "   - **Key Findings**\n"
+            "   - **Detailed Analysis** (using Markdown tables)\n"
+            "   - **Recommendations**\n"
+            "3. **Financial Anomalies & Fraud**: If the query investigates suspicious transactions, compliance breaches, or entity networks, adopt **fraud_detection** with anomaly scoring and risk indicators.\n"
+            "4. **ETL & Data Ingestion**: If the query involves data pipelines, schema validation, or onboarding, adopt **data_ingestion**.\n"
+            "5. **Factual Q&A**: For general knowledge questions, lookups, and traversals, adopt **knowledge_qa**.\n\n"
+            "State your chosen skill in your thinking process (e.g., 'Skill: clinical_summary') before executing."
+        )
+
+    def _build_instruction(self, session_id: Optional[str] = None) -> str:
+        """
+        Assemble comprehensive agent instruction:
+        - Active skill prompt (if explicitly selected) OR dynamic auto-skill catalog (Approach 2)
+        - Distilled historical context
+        - Tool calling efficiency rules
+        """
+        skill = self.config.active_skill
+        if skill:
+            base_instruction = skill.system_prompt
+        else:
+            base_instruction = self._build_auto_skill_instruction()
+
+        # Retrieve and inject distilled historical memory if available
+        if self.config.enable_semantic_distillation:
+            distilled_state = self.context.get_distilled_state(session_id)
+            if distilled_state:
+                mem_md = distilled_state.to_markdown().replace("{", "(").replace("}", ")")
+                base_instruction += f"\n\n{mem_md}"
+                logger.info(f"Assembled prompt with distilled memory state ({len(distilled_state.confirmed_findings)} findings)")
+
+        if not self.config.bypass_graph_tools:
+            base_instruction += (
+                "\n\nTool Calling Efficiency Rule: Retrieve all necessary entities and attributes "
+                "in a single comprehensive tool call (e.g. execute_cypher with LIMIT 50 or semantic_search with top_k=5) "
+                "rather than issuing multiple small probing queries."
+            )
+        else:
+            base_instruction += "\nProvide a direct, helpful, and comprehensive answer without querying domain databases."
+
+        return base_instruction
 
     async def run(self, query: str, session_id: Optional[str] = None) -> RunResult:
         """
         Execute a full agent run for a user query.
 
         Pipeline:
-        1. Apply active skill overrides (if set)
-        2. Store user message in canonical context
-        3. Retrieve relevant memory (long-term)
-        4. Build the LLM prompt (schema + context + memory)
-        5. Execute ADK agent loop with step budget
-        6. Return final result with governance metadata
+        1. Apply input guardrails (prompt injection detection + secret/PII masking)
+        2. Apply active skill overrides (if set)
+        3. Store sanitized user message in canonical context
+        4. Retrieve relevant memory (long-term)
+        5. Build the LLM prompt (schema + context + memory)
+        6. Execute ADK agent loop with step budget
+        7. Apply output guardrails (faithfulness scoring & optional rehydration)
+        8. Return final result with governance metadata
         """
         start_time = time.monotonic()
         self._recent_tool_calls.clear()
@@ -153,42 +262,103 @@ class AgentRunner:
             model_used=self.config.active_model,
         )
 
-        # 1. Store user message in canonical context
+        # 1. Apply Input Guardrails (Prompt injection check + Secrets & PII masking)
+        token_map = None
+        prompt_query = query
+        if self.guardrails and self.config.enable_guardrails:
+            try:
+                guard_res = self.guardrails.guard_input(query)
+                prompt_query = guard_res.masked_text
+                token_map = guard_res.token_map
+                result.pii_entities_masked = guard_res.pii_entities_found
+                if not guard_res.is_safe:
+                    result.final_response = f"Query rejected: {guard_res.blocked_reason or 'Input safety violation'}"
+                    result.error = guard_res.blocked_reason
+                    return result
+            except Exception as e:
+                logger.warning(f"Input safety violation triggered: {e}")
+                result.final_response = f"Query rejected by safety guardrail: {e}"
+                result.error = str(e)
+                return result
+
+        # 2. Store sanitized user message in canonical context
         self.context.add_message(CanonicalMessage(
             role=Role.USER,
-            content=query,
+            content=prompt_query,
             session_id=session_id,
         ))
 
-        # 2. Retrieve relevant memory
+        # 3. Retrieve relevant memory
         memory_context = ""
         if self.config.enable_memory:
-            memories = await self.memory.recall(query, limit=3)
+            memories = await self.memory.recall(prompt_query, limit=3)
             if memories:
                 memory_context = "\n".join(
                     f"[Memory] {m.content}" for m in memories
                 )
                 logger.info(f"Retrieved {len(memories)} relevant memories")
 
-        # 3-4. Agent execution loop
+        # 4. Agent execution loop
         step_start = time.monotonic()
-        instruction = "You are a helpful knowledge assistant."
-        if skill:
-            instruction = skill.system_prompt
+        instruction = self._build_instruction(session_id=session_id)
+
+        mechanic_history_len_before = 0
+        try:
+            from mcp_servers.mechanic import get_mechanic
+            mechanic_history_len_before = len(get_mechanic().repair_history)
+        except Exception:
+            pass
 
         try:
             from google.adk.runners import InMemoryRunner
             from mcp_servers.graph_server import execute_cypher
             from mcp_servers.retrieval_server import semantic_search
             
+            # Intent Gating: if bypass_graph_tools is True (open-domain tasks),
+            # execute without graph tools to save steps and avoid false 'no data' errors
+            tools = []
+            if not self.config.bypass_graph_tools:
+                tools = [execute_cypher, semantic_search]
+            else:
+                logger.info("Intent Gate: Open-domain query detected; bypassing graph RAG tools")
+                instruction += "\nProvide a direct, helpful, and comprehensive answer without querying domain databases."
+
             agent = Agent(
                 name="ckp_agent",
-                model="gemini-2.5-flash",
+                model=self.config.active_model or "gemini-3-flash-preview",
                 instruction=instruction,
-                tools=[execute_cypher, semantic_search]
+                tools=tools
             )
             runner = InMemoryRunner(agent=agent)
-            events = await runner.run_debug(query, session_id=session_id or "default_session", quiet=True)
+            events = []
+            for attempt in range(3):
+                try:
+                    events = await runner.run_debug(prompt_query, session_id=session_id or "default_session", quiet=True)
+                    break
+                except Exception as adk_err:
+                    err_str = str(adk_err).lower()
+                    if "context variable not found" in err_str and attempt < 2:
+                        logger.warning(f"ADK context template collision detected. Stripping braces from prompt...")
+                        instruction = instruction.replace("{", "(").replace("}", ")")
+                        prompt_query = prompt_query.replace("{", "(").replace("}", ")")
+                        agent = Agent(name="ckp_agent", model=agent.model, instruction=instruction, tools=tools)
+                        runner = InMemoryRunner(agent=agent)
+                        continue
+                    elif ("429" in err_str or "503" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "unavailable" in err_str or "demand" in err_str) and attempt < 2:
+                        fallback_models = ["gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.5-flash"]
+                        curr_model = getattr(agent, "model", self.config.active_model)
+                        next_model = next((m for m in fallback_models if m != curr_model), "gemini-3.5-flash-lite")
+                        logger.warning(f"ADK Gemini transient issue ({err_str[:60]}) on {curr_model}. Cascading to {next_model} (attempt {attempt+1}/3)...")
+                        agent = Agent(
+                            name="ckp_agent",
+                            model=next_model,
+                            instruction=instruction,
+                            tools=tools
+                        )
+                        runner = InMemoryRunner(agent=agent)
+                        continue
+                    else:
+                        raise adk_err
             
             response_text = ""
             if events and events[-1].message and events[-1].message.parts:
@@ -228,6 +398,19 @@ class AgentRunner:
                                 prev_step.tool_output = resp_val
                                 break
 
+            # Track self-corrections from The Mechanic
+            try:
+                from mcp_servers.mechanic import get_mechanic
+                new_repairs = get_mechanic().repair_history[mechanic_history_len_before:]
+                repaired_items = [r for r in new_repairs if r.get("was_repaired")]
+                result.mechanic_repairs = len(repaired_items)
+                if repaired_items:
+                    for s in result.steps:
+                        if s.tool_name in ("execute_cypher", "execute_sql"):
+                            s.mechanic_repaired = True
+            except Exception:
+                pass
+
             error_msg = None
         except Exception as e:
             logger.error(f"Agent execution failed: {e}")
@@ -244,6 +427,8 @@ class AgentRunner:
         result.steps.append(step)
         result.final_response = response_text
         result.total_steps = len(result.steps)
+        result.intent = self.config.intent
+        result.complexity_tier = self.config.complexity_tier
 
         # 5. Optional reflection
         if self.config.enable_reflection and result.final_response:
@@ -255,6 +440,20 @@ class AgentRunner:
             if reflection_result.needs_revision:
                 result.was_reflected = True
                 logger.info(f"Reflection triggered: {reflection_result.reason}")
+
+        # 5b. Output Guardrails (Groundedness scoring + Optional rehydration)
+        if self.guardrails and self.config.enable_guardrails and result.final_response:
+            try:
+                out_res = self.guardrails.guard_output(
+                    response=result.final_response,
+                    context_chunks=[],
+                    token_map=token_map,
+                    rehydrate=self.config.rehydrate_output,
+                )
+                result.groundedness_score = out_res.groundedness_score
+                result.final_response = out_res.final_response
+            except Exception as e:
+                logger.warning(f"Output guardrail execution failed: {e}")
 
         # 6. Store assistant response in canonical context
         self.context.add_message(CanonicalMessage(
@@ -277,6 +476,22 @@ class AgentRunner:
                 session_id=session_id,
             )
 
+        # 8. Trigger rolling semantic compression if threshold reached
+        if self.config.enable_semantic_distillation:
+            session_msgs = self.context.get_session_messages(session_id)
+            non_sys_count = len([m for m in session_msgs if m.role != Role.SYSTEM])
+            if non_sys_count >= self.config.distillation_threshold_messages:
+                try:
+                    await self.context.acompress_session(
+                        session_id=session_id,
+                        threshold_messages=self.config.distillation_threshold_messages,
+                        keep_recent_turns=self.config.distillation_keep_recent_turns,
+                        gateway=self.gateway,
+                        model=self.config.active_model,
+                    )
+                except Exception as e:
+                    logger.warning(f"Rolling context compression failed: {e}")
+
         result.total_duration_ms = (time.monotonic() - start_time) * 1000
         logger.info(
             f"Run complete: {result.total_steps} steps, "
@@ -284,6 +499,277 @@ class AgentRunner:
         )
 
         return result
+
+    async def run_stream(
+        self, query: str, session_id: Optional[str] = None
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """
+        Stream agent execution events in real time.
+
+        Yields:
+        - {"type": "thought", "message": "..."}
+        - {"type": "action", "step": N, "tool": "...", "input": {...}, "message": "..."}
+        - {"type": "observation", "step": N, "tool": "...", "output": {...}, "message": "..."}
+        - {"type": "token", "text": "..."}
+        - {"type": "done", "response": "...", "total_steps": N, "duration_ms": M, ...}
+        """
+        start_time = time.monotonic()
+        self._recent_tool_calls.clear()
+
+        yield {"type": "thought", "message": "Evaluating query with Presidio PII & security guardrails..."}
+
+        # 1. Input Guardrails
+        token_map = None
+        prompt_query = query
+        pii_entities_masked = 0
+        if self.guardrails and self.config.enable_guardrails:
+            try:
+                guard_res = self.guardrails.guard_input(query)
+                prompt_query = guard_res.masked_text
+                token_map = guard_res.token_map
+                pii_entities_masked = guard_res.pii_entities_found
+                if not guard_res.is_safe:
+                    yield {"type": "error", "message": f"Query rejected: {guard_res.blocked_reason or 'Input safety violation'}"}
+                    return
+            except Exception as e:
+                yield {"type": "error", "message": f"Query rejected by safety guardrail: {e}"}
+                return
+
+        # 2. Canonical message
+        self.context.add_message(CanonicalMessage(
+            role=Role.USER,
+            content=prompt_query,
+            session_id=session_id,
+        ))
+
+        # 3. Retrieve relevant memory
+        yield {"type": "thought", "message": "Retrieving relevant conversational memory & active schema..."}
+        if self.config.enable_memory:
+            try:
+                memories = await self.memory.recall(prompt_query, limit=3)
+                if memories:
+                    yield {"type": "thought", "message": f"Recalled {len(memories)} relevant historical memory context(s)."}
+            except Exception:
+                pass
+
+        # 4. Instructions & Agent Setup
+        skill = self.config.active_skill
+        if not skill:
+            yield {"type": "thought", "message": "Evaluating query to dynamically select and adopt specialized skill..."}
+
+        instruction = self._build_instruction(session_id=session_id)
+        yield {"type": "thought", "message": f"Engaging reasoning engine with {self.config.active_model}..."}
+
+        step_idx = 1
+        result_steps: list[StepResult] = []
+        accumulated_chunks: list[str] = []
+
+        try:
+            from google.adk.runners import InMemoryRunner
+            from google.genai import types
+            from mcp_servers.graph_server import execute_cypher
+            from mcp_servers.retrieval_server import semantic_search
+
+            tools = []
+            if not self.config.bypass_graph_tools:
+                tools = [execute_cypher, semantic_search]
+
+            agent = Agent(
+                name="ckp_agent",
+                model=self.config.active_model or "gemini-3-flash-preview",
+                instruction=instruction,
+                tools=tools,
+            )
+            runner = InMemoryRunner(agent=agent)
+            session = await runner.session_service.get_session(
+                app_name=runner.app_name,
+                user_id="user_default",
+                session_id=session_id or "default_session",
+            )
+            if not session:
+                session = await runner.session_service.create_session(
+                    app_name=runner.app_name,
+                    user_id="user_default",
+                    session_id=session_id or "default_session",
+                )
+
+            async def _run_event_stream():
+                nonlocal agent, runner, session
+                for attempt in range(3):
+                    try:
+                        async for ev in runner.run_async(
+                            user_id="user_default",
+                            session_id=session.id,
+                            new_message=types.UserContent(parts=[types.Part(text=prompt_query)]),
+                        ):
+                            yield ev
+                        return
+                    except Exception as adk_err:
+                        err_str = str(adk_err).lower()
+                        if "context variable not found" in err_str and attempt < 2:
+                            logger.warning(f"ADK context template collision detected in stream. Stripping braces from prompt...")
+                            instruction = instruction.replace("{", "(").replace("}", ")")
+                            prompt_query = prompt_query.replace("{", "(").replace("}", ")")
+                            agent = Agent(name="ckp_agent", model=agent.model, instruction=instruction, tools=tools)
+                            runner = InMemoryRunner(agent=agent)
+                            session = await runner.session_service.create_session(
+                                app_name=runner.app_name,
+                                user_id="user_default",
+                                session_id=session_id or "default_session",
+                            )
+                            continue
+                        elif ("429" in err_str or "503" in err_str or "resource_exhausted" in err_str or "quota" in err_str or "unavailable" in err_str or "demand" in err_str) and attempt < 2:
+                            fallback_models = ["gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.5-flash"]
+                            curr_model = getattr(agent, "model", self.config.active_model)
+                            next_model = next((m for m in fallback_models if m != curr_model), "gemini-3.5-flash-lite")
+                            logger.warning(f"ADK Gemini transient issue ({err_str[:60]}) on {curr_model}. Cascading to {next_model} (attempt {attempt+1}/3)...")
+                            agent = Agent(
+                                name="ckp_agent",
+                                model=next_model,
+                                instruction=instruction,
+                                tools=tools,
+                            )
+                            runner = InMemoryRunner(agent=agent)
+                            session = await runner.session_service.create_session(
+                                app_name=runner.app_name,
+                                user_id="user_default",
+                                session_id=session_id or "default_session",
+                            )
+                            continue
+                        else:
+                            raise adk_err
+
+            async for ev in _run_event_stream():
+                fcalls = ev.get_function_calls() if hasattr(ev, "get_function_calls") else []
+                if not fcalls and hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                    fcalls = [p.function_call for p in ev.content.parts if hasattr(p, "function_call") and p.function_call]
+
+                fresps = ev.get_function_responses() if hasattr(ev, "get_function_responses") else []
+                if not fresps and hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                    fresps = [p.function_response for p in ev.content.parts if hasattr(p, "function_response") and p.function_response]
+
+                for fc in fcalls:
+                    tool_input = dict(fc.args) if hasattr(fc, "args") and fc.args else {}
+                    step_obj = StepResult(
+                        step_index=step_idx,
+                        action="tool_call",
+                        tool_name=fc.name,
+                        tool_input=tool_input,
+                        duration_ms=0.0,
+                    )
+                    result_steps.append(step_obj)
+
+                    query_preview = ""
+                    if "query" in tool_input:
+                        query_preview = f": {tool_input['query'][:70]}..."
+                    yield {
+                        "type": "action",
+                        "step": step_idx,
+                        "tool": fc.name,
+                        "input": tool_input,
+                        "message": f"Step {step_idx}: Executing {fc.name}{query_preview}",
+                    }
+                    step_idx += 1
+
+                for fr in fresps:
+                    resp_val = fr.response if hasattr(fr, "response") else {}
+                    for prev_step in reversed(result_steps):
+                        if prev_step.tool_name == fr.name and prev_step.tool_output is None:
+                            prev_step.tool_output = resp_val
+                            break
+                    count_summary = ""
+                    if isinstance(resp_val, list):
+                        count_summary = f" — retrieved {len(resp_val)} items"
+                    elif isinstance(resp_val, dict):
+                        inner = resp_val.get("output", resp_val.get("result", []))
+                        if isinstance(inner, list):
+                            count_summary = f" — retrieved {len(inner)} items"
+                    yield {
+                        "type": "observation",
+                        "step": step_idx - 1,
+                        "tool": fr.name,
+                        "output": resp_val,
+                        "message": f"Completed {fr.name}{count_summary}",
+                    }
+
+                if hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
+                    for p in ev.content.parts:
+                        if hasattr(p, "text") and p.text:
+                            accumulated_chunks.append(p.text)
+                            yield {
+                                "type": "token",
+                                "text": p.text,
+                            }
+
+            response_text = "".join(accumulated_chunks)
+            if not response_text:
+                response_text = "Analysis complete, but no response text was returned."
+
+        except Exception as e:
+            logger.error(f"Agent streaming error: {e}")
+            yield {"type": "error", "message": f"Agent execution error: {e}"}
+            return
+
+        # 5. Output guardrails
+        yield {"type": "thought", "message": "Evaluating output groundedness and safety verification..."}
+        groundedness_score = 0.0
+        if self.guardrails and self.config.enable_guardrails and response_text:
+            try:
+                out_res = self.guardrails.guard_output(
+                    response=response_text,
+                    context_chunks=[],
+                    token_map=token_map,
+                    rehydrate=self.config.rehydrate_output,
+                )
+                groundedness_score = out_res.groundedness_score
+                response_text = out_res.final_response
+            except Exception as e:
+                logger.warning(f"Output guardrail check failed: {e}")
+
+        # 6. Save in canonical context
+        total_duration = (time.monotonic() - start_time) * 1000
+        self.context.add_message(CanonicalMessage(
+            role=Role.ASSISTANT,
+            content=response_text,
+            session_id=session_id,
+            model_used=self.config.active_model,
+            metadata={
+                "model_used": self.config.active_model,
+                "total_steps": len(result_steps) + 1,
+                "duration_ms": total_duration,
+            },
+        ))
+
+        # 7. Persist to memory
+        if self.config.enable_memory and response_text:
+            try:
+                await self.memory.store(
+                    query=query,
+                    response=response_text,
+                    session_id=session_id,
+                )
+            except Exception:
+                pass
+
+        yield {
+            "type": "done",
+            "response": response_text,
+            "total_steps": len(result_steps) + 1,
+            "duration_ms": total_duration,
+            "model_used": self.config.active_model,
+            "groundedness_score": groundedness_score,
+            "steps": [
+                {
+                    "step_index": s.step_index,
+                    "action": s.action,
+                    "tool_name": s.tool_name,
+                    "tool_input": s.tool_input,
+                    "tool_output": s.tool_output,
+                    "mechanic_repaired": getattr(s, "mechanic_repaired", False),
+                }
+                for s in result_steps
+            ],
+        }
 
     def _detect_infinite_loop(self, step: StepResult) -> bool:
         """Detect if the agent is stuck in an infinite loop of identical tool calls."""

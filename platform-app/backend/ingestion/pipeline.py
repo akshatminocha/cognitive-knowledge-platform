@@ -321,7 +321,7 @@ class IngestionPipeline:
         extensions: Optional[list[str]] = None,
     ) -> list[IngestionResult]:
         """Ingest all supported files in a directory."""
-        supported = extensions or [".pdf", ".txt", ".md", ".csv", ".json", ".docx"]
+        supported = extensions or sorted(list(FileLoader.SUPPORTED_EXTENSIONS))
         results = []
 
         for file_path in sorted(dir_path.iterdir()):

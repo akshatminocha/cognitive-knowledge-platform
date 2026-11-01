@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { MessageSquare, Upload, Library, Activity, Brain, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Settings } from 'lucide-react';
+import { MessageSquare, Upload, Library, Activity, Brain, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Settings, BarChart3 } from 'lucide-react';
 import { getHealth, getSchemas } from '../api/client';
 import './Layout.css';
 
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { path: '/', icon: MessageSquare, label: 'Chat' },
   { path: '/ingest', icon: Upload, label: 'Ingest' },
   { path: '/library', icon: Library, label: 'Library' },
+  { path: '/monitoring', icon: BarChart3, label: 'Monitoring' },
   { path: '/diagnostics', icon: Activity, label: 'Diagnostics' },
   { path: '/admin', icon: Settings, label: 'Admin' },
 ];
@@ -80,7 +81,7 @@ export default function Layout({ children }) {
             <div className="sidebar-version">
               <span className="sidebar-label">Version</span>
               <span style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.85rem' }}>
-                v{health.version || '2.0.0'}
+                v{health.version || '3.0.0'}
               </span>
             </div>
           )}

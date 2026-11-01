@@ -1,7 +1,17 @@
 import { useState } from 'react';
-import { Download, FileText, Paperclip, X, Loader2, CheckCircle2, AlertCircle, Settings } from 'lucide-react';
+import { Download, FileText, Paperclip, X, Loader2, CheckCircle2, AlertCircle, Settings, Presentation, Image, Headphones, Video, Sparkles } from 'lucide-react';
 import { ingestFile } from '../api/client';
 import './IngestPage.css';
+
+const getFileCategory = (filename) => {
+  if (!filename) return { label: 'Document', icon: FileText, color: '#a855f7' };
+  const ext = filename.split('.').pop().toLowerCase();
+  if (['pptx'].includes(ext)) return { label: 'Presentation (Slides & Tables)', icon: Presentation, color: '#f59e0b' };
+  if (['png', 'jpg', 'jpeg'].includes(ext)) return { label: 'Vision Document (Diagrams & Layout)', icon: Image, color: '#38bdf8' };
+  if (['mp3', 'wav'].includes(ext)) return { label: 'Audio Stream (Speaker Diarized)', icon: Headphones, color: '#ec4899' };
+  if (['mp4'].includes(ext)) return { label: 'Video Stream (Scene Chronology)', icon: Video, color: '#10b981' };
+  return { label: 'Document', icon: FileText, color: '#a855f7' };
+};
 
 export default function IngestPage() {
   const [file, setFile] = useState(null);
@@ -37,6 +47,9 @@ export default function IngestPage() {
     }
   };
 
+  const fileCat = file ? getFileCategory(file.name) : null;
+  const CatIcon = fileCat?.icon || FileText;
+
   return (
     <div className="ingest-page">
       <div className="page-header">
@@ -53,21 +66,41 @@ export default function IngestPage() {
             onDrop={handleDrop}
             onClick={() => document.getElementById('file-input').click()}
           >
-            <input id="file-input" type="file" accept=".pdf,.txt,.md,.csv,.json,.docx" onChange={handleFileSelect} hidden />
+            <input
+              id="file-input"
+              type="file"
+              accept=".pdf,.txt,.md,.csv,.json,.docx,.pptx,.png,.jpg,.jpeg,.mp3,.wav,.mp4"
+              onChange={handleFileSelect}
+              hidden
+            />
             <div className="drop-zone-icon">
               {dragging ? <Download size={48} /> : <FileText size={48} />}
             </div>
             <h3 className="drop-zone-title">
               {dragging ? 'Drop it here!' : 'Drag & drop or click to upload'}
             </h3>
-            <p className="drop-zone-subtitle">PDF · TXT · Markdown · CSV · JSON · DOCX</p>
+            <p className="drop-zone-subtitle">Multimodal intake: Documents · Slides · Vision · Audio · Video</p>
+            <div className="format-pills-row">
+              <span className="format-pill"><FileText size={12} className="format-icon" /> Documents</span>
+              <span className="format-pill"><Presentation size={12} className="format-icon" /> PPTX</span>
+              <span className="format-pill"><Image size={12} className="format-icon" /> Vision</span>
+              <span className="format-pill"><Headphones size={12} className="format-icon" /> Audio</span>
+              <span className="format-pill"><Video size={12} className="format-icon" /> Video</span>
+            </div>
           </div>
 
           {file && (
             <div className="file-info glass-card">
-              <span className="file-info-icon"><Paperclip size={20} /></span>
+              <span className="file-info-icon" style={{ color: fileCat.color }}>
+                <CatIcon size={22} />
+              </span>
               <div className="file-info-text">
-                <strong>{file.name}</strong>
+                <div className="file-name-row">
+                  <strong>{file.name}</strong>
+                  <span className="file-category-badge" style={{ borderColor: fileCat.color + '55', color: fileCat.color, background: fileCat.color + '18' }}>
+                    <CatIcon size={11} className="badge-icon" /> {fileCat.label}
+                  </span>
+                </div>
                 <span>{(file.size / 1024).toFixed(1)} KB</span>
               </div>
               <button className="btn" onClick={() => { setFile(null); setResult(null); setError(null); }}>

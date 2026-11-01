@@ -9,7 +9,9 @@ authors = [
     { name = "Akshat Minocha" }
 ]
 dependencies = [
-    "ckp-platform-app"
+    "ckp-platform-app",
+    "ckp-uka-core",
+    "ckp-uka-mcp-server",
 ]
 
 [tool.uv.workspace]
@@ -19,6 +21,8 @@ members = [
     "packages/ontology-engine",
     "packages/mcp-servers",
     "packages/agent-harness",
+    "packages/uka-core",
+    "packages/uka-mcp-server",
     "platform-app"
 ]
 
@@ -28,6 +32,8 @@ ckp-guardrails = { workspace = true }
 ckp-ontology-engine = { workspace = true }
 ckp-mcp-servers = { workspace = true }
 ckp-agent-harness = { workspace = true }
+ckp-uka-core = { workspace = true }
+ckp-uka-mcp-server = { workspace = true }
 ckp-platform-app = { workspace = true }
 
 [dependency-groups]

@@ -19,8 +19,10 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import time
 from typing import Any, AsyncIterator, Optional
 
 import litellm
@@ -29,6 +31,8 @@ from ai_gateway.budget import BudgetExhausted, BudgetManager
 from ai_gateway.cache import ResponseCache
 from ai_gateway.config import DEFAULT_MODELS, GatewayConfig, ModelConfig
 from ai_gateway.rate_limiter import RateLimitExceeded, RateLimiter
+from ai_gateway.router import ModelCascadeRouter, RoutingDecision
+from ai_gateway.telemetry import AuditLogEntry, TelemetryStore
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +90,21 @@ class GatewayClient:
             ttl_seconds=self.config.cache.ttl_seconds,
             max_entries=self.config.cache.max_entries,
         )
+        self._router = ModelCascadeRouter()
+        self._telemetry = TelemetryStore()
 
         # Set API keys from config into environment (LiteLLM reads from env)
         self._configure_api_keys()
+
+    @property
+    def router(self) -> ModelCascadeRouter:
+        """Smart Model Cascade Router instance."""
+        return self._router
+
+    @property
+    def telemetry(self) -> TelemetryStore:
+        """Observability and Telemetry Audit Store."""
+        return self._telemetry
 
     def _configure_api_keys(self) -> None:
         """Set provider API keys into environment variables for LiteLLM."""
@@ -142,7 +158,26 @@ class GatewayClient:
             BudgetExhausted: If cost budget is exhausted.
             AllModelsFailed: If all models in fallback chain fail.
         """
-        target_model = self._resolve_model(model)
+        # Smart Model Cascade resolution (AI Economics)
+        routing_decision: Optional[RoutingDecision] = None
+        user_query = ""
+        for msg in reversed(messages or []):
+            if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content"):
+                user_query = str(msg["content"])
+                break
+
+        is_auto_mode = bool(model and model.lower() in ("auto", "auto (ai economics)", "smart"))
+        if is_auto_mode:
+            routing_decision = self._router.route_query(user_query, requested_model="auto")
+            target_model = routing_decision.selected_model
+        elif model:
+            # Check provider availability & cascade gracefully if needed
+            routing_decision = self._router.route_query(user_query, requested_model=model)
+            target_model = routing_decision.selected_model
+        else:
+            target_model = self._resolve_model(model)
+
+        start_mono = time.monotonic()
 
         # 1. Pre-flight: Rate limit check
         self._rate_limiter.check_request()
@@ -188,6 +223,11 @@ class GatewayClient:
                 model_cfg = self._get_model_config(model_id)
                 cost_in = model_cfg.cost_per_input_token if model_cfg else 0.0
                 cost_out = model_cfg.cost_per_output_token if model_cfg else 0.0
+                in_cost = round(cost_in * prompt_tokens, 8)
+                out_cost = round(cost_out * completion_tokens, 8)
+                tot_cost = round(in_cost + out_cost, 8)
+                duration_ms = round((time.monotonic() - start_mono) * 1000.0, 2)
+
                 self._budget.record_usage(
                     model_id=model_id,
                     prompt_tokens=prompt_tokens,
@@ -195,6 +235,30 @@ class GatewayClient:
                     cost_per_input_token=cost_in,
                     cost_per_output_token=cost_out,
                 )
+
+                # Record in telemetry store
+                try:
+                    self._telemetry.record_call(AuditLogEntry(
+                        session_id=kwargs.get("session_id"),
+                        prompt_preview=user_query[:200],
+                        model_name=model_id,
+                        provider=model_cfg.provider.value if model_cfg else "unknown",
+                        is_smart_routed=is_auto_mode,
+                        complexity_tier=routing_decision.tier.value if routing_decision else None,
+                        intent=routing_decision.intent.value if routing_decision else None,
+                        input_tokens=prompt_tokens,
+                        output_tokens=completion_tokens,
+                        input_cost_usd=in_cost,
+                        output_cost_usd=out_cost,
+                        total_cost_usd=tot_cost,
+                        duration_ms=duration_ms,
+                        status="success" if model_id == target_model else "fallback",
+                        tools_called=kwargs.get("tools_called", []),
+                        routing_reason=routing_decision.reason if routing_decision else None,
+                        cascade_reason=routing_decision.fallback_reason if routing_decision else None,
+                    ))
+                except Exception as tel_err:
+                    logger.warning(f"Failed to record call telemetry: {tel_err}")
 
                 # 7. Post-flight: Cache the response
                 if use_cache and self.config.cache.enabled:
@@ -210,7 +274,14 @@ class GatewayClient:
                 response["_gateway"] = {
                     "model_used": model_id,
                     "cache_hit": False,
-                    "fallback_used": model_id != target_model,
+                    "fallback_used": model_id != target_model or (routing_decision is not None and routing_decision.fallback_applied),
+                    "smart_routed": is_auto_mode,
+                    "complexity_tier": routing_decision.tier.value if routing_decision else None,
+                    "intent": routing_decision.intent.value if routing_decision else None,
+                    "bypass_graph_tools": routing_decision.bypass_graph_tools if routing_decision else False,
+                    "estimated_cost_tier": routing_decision.estimated_cost_tier if routing_decision else None,
+                    "routing_reason": routing_decision.reason if routing_decision else None,
+                    "cascade_reason": routing_decision.fallback_reason if routing_decision else None,
                 }
 
                 return response
@@ -249,8 +320,18 @@ class GatewayClient:
 
         call_kwargs.update(kwargs)
 
-        response = await litellm.acompletion(**call_kwargs)
-        return response.model_dump()
+        for attempt in range(3):
+            try:
+                response = await litellm.acompletion(**call_kwargs)
+                return response.model_dump()
+            except Exception as e:
+                err_str = str(e).lower()
+                if ("rate" in err_str or "resource_exhausted" in err_str or "429" in err_str) and attempt < 2:
+                    wait_sec = 12 * (attempt + 1)
+                    logger.warning(f"Rate limit encountered on {model}. Retrying in {wait_sec}s (attempt {attempt+1}/3)...")
+                    await asyncio.sleep(wait_sec)
+                else:
+                    raise e
 
     # --- Observability & Diagnostics ---
 
@@ -260,6 +341,7 @@ class GatewayClient:
             "rate_limits": self._rate_limiter.get_usage(),
             "budget": self._budget.get_summary(),
             "cache": self._cache.get_stats(),
+            "telemetry": self._telemetry.get_summary(),
         }
 
     def switch_default_model(self, model_id: str) -> None:

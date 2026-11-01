@@ -141,6 +141,9 @@ class SemanticChunker:
                 prev = chunks[-1]
                 prev.text += " " + chunk.text
                 prev.token_count = _estimate_tokens(prev.text)
+            else:
+                # If this is the only chunk, keep it even if under min_chunk_size
+                chunks.append(chunk)
 
         logger.debug(
             f"Chunked {len(sentences)} sentences into {len(chunks)} chunks "
