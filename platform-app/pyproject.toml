@@ -19,6 +19,7 @@ dependencies = [
     "ckp-uka-core",
     "sentence-transformers>=6.0.1",
     "python-pptx>=1.0.0",
+    "watchdog>=4.0.0",
 ]
 
 [build-system]

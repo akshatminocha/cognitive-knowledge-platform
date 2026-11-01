@@ -108,6 +108,20 @@ class AdminConfigRequest(BaseModel):
     gateway: dict
 
 
+class CrawlerToggleRequest(BaseModel):
+    """Request to start, pause, resume, or toggle the crawler."""
+    action: str = Field(default="toggle", description="One of: toggle, start, pause, resume")
+
+
+class CrawlerWebhookRequest(BaseModel):
+    """External webhook trigger payload for autonomous ingestion."""
+    filename: str = Field(..., description="Target file name with extension")
+    content: Optional[str] = Field(default="", description="Text or base64 encoded content")
+    source_url: Optional[str] = Field(default=None, description="Optional remote file URL")
+    schema_name: Optional[str] = Field(default=None, description="Optional explicit schema override")
+    metadata: Optional[dict] = Field(default=None, description="Additional document metadata")
+
+
 
 # ---------------------------------------------------------------------------
 # Helpers for Query & Streaming Endpoints
@@ -915,4 +929,92 @@ async def export_monitoring_logs(
             media_type="text/csv",
             headers={"Content-Disposition": "attachment; filename=llm_audit_logs.csv"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Autonomous Data Crawler Endpoints
+# ---------------------------------------------------------------------------
+@router.get("/crawler/status")
+async def get_crawler_status(request: Request):
+    """Get live status of the autonomous background crawler and connectors."""
+    crawler = getattr(request.app.state, "crawler", None)
+    if not crawler:
+        return {
+            "status": "disabled",
+            "message": "Crawler service not configured",
+            "stats": {"total_crawled": 0, "total_chunks": 0, "total_entities": 0},
+            "connectors": [],
+        }
+    return crawler.get_status()
+
+
+@router.post("/crawler/toggle")
+async def toggle_crawler(request: Request, body: CrawlerToggleRequest = CrawlerToggleRequest()):
+    """Start, pause, or resume the background crawler."""
+    crawler = getattr(request.app.state, "crawler", None)
+    if not crawler:
+        raise HTTPException(status_code=503, detail="Crawler service not initialized")
+
+    action = body.action.lower()
+    if action == "pause":
+        crawler.pause()
+    elif action in ("resume", "start"):
+        if crawler.status.value == "stopped":
+            await crawler.start()
+        else:
+            crawler.resume()
+    else:  # toggle
+        if crawler.status.value == "running":
+            crawler.pause()
+        else:
+            crawler.resume()
+
+    return crawler.get_status()
+
+
+@router.get("/crawler/logs")
+async def get_crawler_logs(request: Request, limit: int = 50):
+    """Retrieve recent autonomous crawler ingestion activity logs."""
+    crawler = getattr(request.app.state, "crawler", None)
+    if not crawler:
+        return {"logs": [], "total": 0}
+    logs = crawler.get_logs(limit=limit)
+    return {"logs": logs, "total": len(logs)}
+
+
+@router.post("/crawler/scan-now")
+async def scan_crawler_now(request: Request):
+    """Trigger an immediate scan across all storage drop points."""
+    crawler = getattr(request.app.state, "crawler", None)
+    if not crawler:
+        raise HTTPException(status_code=503, detail="Crawler service not initialized")
+    queued = await crawler.scan_now()
+    return {"status": "ok", "files_queued": queued, "crawler": crawler.get_status()}
+
+
+@router.post("/crawler/webhook")
+async def crawler_webhook(request: Request, body: CrawlerWebhookRequest):
+    """
+    External webhook trigger for automated enterprise data pipelines.
+    Accepts raw text or base64 payload.
+    """
+    crawler = getattr(request.app.state, "crawler", None)
+    if not crawler:
+        raise HTTPException(status_code=503, detail="Crawler service not initialized")
+
+    content = body.content or ""
+    event = await crawler.submit_payload(
+        filename=body.filename,
+        content=content,
+        source="webhook",
+        explicit_schema=body.schema_name,
+        metadata=body.metadata,
+    )
+    return {
+        "event_id": event.id,
+        "filename": event.filename,
+        "detected_domain": event.detected_domain,
+        "status": event.status,
+        "error_message": event.error_message,
+    }
 

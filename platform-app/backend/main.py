@@ -100,10 +100,32 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Neo4j driver not available (non-fatal): {e}")
 
+    # Initialize Autonomous Data Crawler Service
+    from backend.crawler.service import CrawlerService
+    watch_dir = os.getenv("CKP_CRAWLER_WATCH_DIR", "data/incoming")
+    app.state.crawler = CrawlerService(
+        watch_dir=watch_dir,
+        gateway=app.state.gateway,
+        ontology_manager=app.state.ontology_manager,
+        qdrant_client=app.state.qdrant_client,
+        neo4j_driver=app.state.neo4j_driver,
+    )
+    if os.getenv("CKP_CRAWLER_ENABLED", "true").lower() in ("true", "1", "yes"):
+        try:
+            await app.state.crawler.start()
+            logger.info("Autonomous Crawler Service started in background")
+        except Exception as e:
+            logger.warning(f"Failed to start Crawler Service: {e}")
+
     logger.info("CKP Platform ready")
     yield
     
     # Teardown
+    if hasattr(app.state, "crawler") and app.state.crawler:
+        try:
+            await app.state.crawler.stop()
+        except Exception:
+            pass
     if app.state.qdrant_client:
         try:
             await app.state.qdrant_client.close()

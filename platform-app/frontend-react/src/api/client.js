@@ -184,3 +184,41 @@ export function exportMonitoring(format = 'csv') {
   window.open(`${API_BASE}/monitoring/export?format=${format}`, '_blank');
 }
 
+// Crawler APIs
+export async function getCrawlerStatus() {
+  try {
+    return await fetchJSON(`${API_BASE}/crawler/status`);
+  } catch (err) {
+    return { status: 'disabled', error: err.message, connectors: [], stats: {} };
+  }
+}
+
+export async function toggleCrawler(action = 'toggle') {
+  return fetchJSON(`${API_BASE}/crawler/toggle`, {
+    method: 'POST',
+    body: JSON.stringify({ action }),
+  });
+}
+
+export async function getCrawlerLogs(limit = 50) {
+  try {
+    return await fetchJSON(`${API_BASE}/crawler/logs?limit=${limit}`);
+  } catch (err) {
+    return { logs: [], total: 0 };
+  }
+}
+
+export async function scanCrawlerNow() {
+  return fetchJSON(`${API_BASE}/crawler/scan-now`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function triggerCrawlerWebhook(filename, content = '', schemaName = null, metadata = null) {
+  return fetchJSON(`${API_BASE}/crawler/webhook`, {
+    method: 'POST',
+    body: JSON.stringify({ filename, content, schema_name: schemaName, metadata }),
+  });
+}
+
