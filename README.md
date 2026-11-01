@@ -169,11 +169,6 @@ Run the full automated test suite using `uv`:
 uv run pytest
 ```
 
-Output:
-```
-============================ 111 passed in 24.12s =============================
-```
-
 Test coverage includes:
 - `tests/test_uka/`: UKA models, streaming bundle writer, random-access reader, cryptographic verification, FastMCP tools, and ecosystem harvesters.
 - `tests/test_agent_harness/`: Canonical message formatting, context windowing, semantic distillation, infinite memory, and UKA active session exporter.
