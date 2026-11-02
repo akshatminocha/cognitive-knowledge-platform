@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { MessageSquare, Upload, Library, Activity, Brain, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Settings, BarChart3 } from 'lucide-react';
-import { getHealth, getSchemas } from '../api/client';
+import { MessageSquare, Upload, Library, Activity, Brain, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Settings, BarChart3, LogOut, ShieldCheck, Eye } from 'lucide-react';
+import { getHealth, getSchemas, logoutSession, getStoredRole } from '../api/client';
 import './Layout.css';
 
 const NAV_ITEMS = [
@@ -13,7 +13,7 @@ const NAV_ITEMS = [
   { path: '/admin', icon: Settings, label: 'Admin' },
 ];
 
-export default function Layout({ children }) {
+export default function Layout({ children, quota, onLogout }) {
   const [collapsed, setCollapsed] = useState(false);
   const [health, setHealth] = useState({});
   const [schemas, setSchemas] = useState([]);
@@ -28,6 +28,13 @@ export default function Layout({ children }) {
   }, []);
 
   const isHealthy = health.status === 'healthy';
+  const role = getStoredRole() || quota?.role || 'demo';
+  const isAdmin = role === 'admin';
+
+  const handleLogout = async () => {
+    await logoutSession();
+    onLogout?.();
+  };
 
   return (
     <div className="layout">
@@ -44,6 +51,21 @@ export default function Layout({ children }) {
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
+
+        {/* Access Role Badge */}
+        {!collapsed && (
+          <div className="sidebar-access-badge">
+            <div className={`access-badge ${isAdmin ? 'admin' : 'demo'}`}>
+              {isAdmin ? <ShieldCheck size={14} /> : <Eye size={14} />}
+              <span className="badge-role">{isAdmin ? 'Admin Access' : 'Evaluator'}</span>
+              {!isAdmin && quota && (
+                <span className="badge-quota">
+                  {Math.max(0, (quota.query_limit || 10) - (quota.queries_used || 0))}/{quota.query_limit || 10}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {!collapsed && (
           <div className="sidebar-schema">
@@ -77,6 +99,20 @@ export default function Layout({ children }) {
               </span>
             )}
           </div>
+
+          {/* Logout button */}
+          {!collapsed && (
+            <button className="sidebar-logout" onClick={handleLogout} title="Logout">
+              <LogOut size={14} />
+              <span>Sign Out</span>
+            </button>
+          )}
+          {collapsed && (
+            <button className="sidebar-logout collapsed" onClick={handleLogout} title="Logout">
+              <LogOut size={16} />
+            </button>
+          )}
+
           {!collapsed && (
             <div className="sidebar-version">
               <span className="sidebar-label">Version</span>

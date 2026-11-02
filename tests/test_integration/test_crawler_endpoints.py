@@ -30,10 +30,20 @@ async def test_crawler_endpoints(tmp_path):
     if not hasattr(app.state, "crawler") or app.state.crawler is None:
         app.state.crawler = CrawlerService(watch_dir=watch_dir)
 
+    if not hasattr(app.state, "auth_service") or app.state.auth_service is None:
+        from backend.auth.service import AuthService
+        app.state.auth_service = AuthService()
+
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url="http://test",
     ) as client:
+        # Obtain admin token
+        auth_res = await client.post("/api/v2/auth/verify", json={"passcode": "ckp-admin-2025"})
+        assert auth_res.status_code == 200
+        admin_token = auth_res.json()["token"]
+        auth_headers = {"Authorization": f"Bearer {admin_token}"}
+
         # 1. GET /api/v2/crawler/status
         res_status = await client.get("/api/v2/crawler/status")
         assert res_status.status_code == 200
@@ -42,12 +52,12 @@ async def test_crawler_endpoints(tmp_path):
         assert "connectors" in data
 
         # 2. POST /api/v2/crawler/toggle (pause)
-        res_pause = await client.post("/api/v2/crawler/toggle", json={"action": "pause"})
+        res_pause = await client.post("/api/v2/crawler/toggle", json={"action": "pause"}, headers=auth_headers)
         assert res_pause.status_code == 200
         assert res_pause.json()["status"] == "paused"
 
         # 3. POST /api/v2/crawler/toggle (resume)
-        res_resume = await client.post("/api/v2/crawler/toggle", json={"action": "resume"})
+        res_resume = await client.post("/api/v2/crawler/toggle", json={"action": "resume"}, headers=auth_headers)
         assert res_resume.status_code == 200
         assert res_resume.json()["status"] == "running"
 
@@ -59,6 +69,7 @@ async def test_crawler_endpoints(tmp_path):
                 "content": '{"patient_id": "P-101", "diagnosis": "Hypertension", "medication": "Amlodipine"}',
                 "metadata": {"source_system": "EpicEHR"},
             },
+            headers=auth_headers,
         )
         assert res_webhook.status_code == 200
         webhook_data = res_webhook.json()
@@ -75,7 +86,7 @@ async def test_crawler_endpoints(tmp_path):
         assert logs_data["logs"][0]["filename"] == "automated_patient_ehr.json"
 
         # 6. POST /api/v2/crawler/scan-now
-        res_scan = await client.post("/api/v2/crawler/scan-now")
+        res_scan = await client.post("/api/v2/crawler/scan-now", headers=auth_headers)
         assert res_scan.status_code == 200
         scan_data = res_scan.json()
         assert scan_data["status"] == "ok"

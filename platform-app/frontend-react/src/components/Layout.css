@@ -187,6 +187,72 @@
   gap: 2px;
 }
 
+/* ===== ACCESS BADGE ===== */
+.sidebar-access-badge {
+  padding: 0 16px 8px;
+}
+.access-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: all var(--transition-normal);
+}
+.access-badge.admin {
+  background: linear-gradient(135deg, rgba(122, 82, 244, 0.15), rgba(0, 210, 255, 0.08));
+  border: 1px solid rgba(122, 82, 244, 0.25);
+  color: #A78BFA;
+}
+.access-badge.demo {
+  background: rgba(0, 210, 255, 0.08);
+  border: 1px solid rgba(0, 210, 255, 0.18);
+  color: #67E8F9;
+}
+.badge-role {
+  flex: 1;
+}
+.badge-quota {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: rgba(0, 210, 255, 0.12);
+  color: #00D2FF;
+  letter-spacing: 0.03em;
+}
+
+/* ===== LOGOUT BUTTON ===== */
+.sidebar-logout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.04);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+.sidebar-logout:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #FCA5A5;
+}
+.sidebar-logout.collapsed {
+  justify-content: center;
+  padding: 8px;
+  margin-bottom: 10px;
+}
+
 /* ===== MAIN CONTENT ===== */
 .main-content {
   flex: 1;

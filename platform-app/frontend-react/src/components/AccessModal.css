@@ -1,0 +1,354 @@
+/* ===================================================================
+   AccessModal — Enterprise Access Gate
+   Dark glassmorphic overlay with animated orbs
+   =================================================================== */
+
+/* Overlay */
+.access-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 7, 15, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  animation: fadeIn 0.4s ease;
+}
+
+/* Animated background orbs */
+.access-bg-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.25;
+  pointer-events: none;
+}
+.orb-1 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, #7A52F4, transparent 70%);
+  top: -120px;
+  left: -80px;
+  animation: orbFloat1 12s ease-in-out infinite;
+}
+.orb-2 {
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, #00D2FF, transparent 70%);
+  bottom: -100px;
+  right: -60px;
+  animation: orbFloat2 14s ease-in-out infinite;
+}
+.orb-3 {
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, #A78BFA, transparent 70%);
+  top: 40%;
+  right: 20%;
+  animation: orbFloat3 10s ease-in-out infinite;
+}
+@keyframes orbFloat1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, 30px) scale(1.1); }
+}
+@keyframes orbFloat2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-30px, -40px) scale(1.15); }
+}
+@keyframes orbFloat3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(20px, -20px) scale(0.9); }
+}
+
+/* Modal Card */
+.access-modal {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 440px;
+  background: rgba(17, 24, 39, 0.65);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
+  border: 1px solid rgba(122, 82, 244, 0.18);
+  border-radius: 24px;
+  padding: 40px 36px 32px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.5),
+    0 0 60px rgba(122, 82, 244, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  animation: bounceIn 0.5s ease;
+}
+.access-modal.shake {
+  animation: shakeModal 0.5s ease;
+}
+@keyframes shakeModal {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-12px); }
+  40% { transform: translateX(10px); }
+  60% { transform: translateX(-8px); }
+  80% { transform: translateX(6px); }
+}
+
+/* Header */
+.access-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.access-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(122, 82, 244, 0.2), rgba(0, 210, 255, 0.12));
+  border: 1px solid rgba(122, 82, 244, 0.25);
+  color: #A78BFA;
+  margin-bottom: 16px;
+  box-shadow: 0 0 30px rgba(122, 82, 244, 0.15);
+}
+.access-title {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+  line-height: 1.1;
+}
+.access-subtitle {
+  font-size: 0.82rem;
+  color: var(--text-secondary, #94A3B8);
+  margin-top: 4px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+.access-desc {
+  font-size: 0.78rem;
+  color: var(--text-muted, #64748B);
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+/* Mode Buttons */
+.access-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.access-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary, #F1F5F9);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  text-align: left;
+  font-family: inherit;
+}
+.access-mode-btn:hover {
+  border-color: rgba(122, 82, 244, 0.35);
+  background: rgba(122, 82, 244, 0.08);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(122, 82, 244, 0.12);
+}
+.access-mode-btn.demo:hover .mode-icon { color: #00D2FF; }
+.access-mode-btn.admin:hover .mode-icon { color: #A78BFA; }
+
+.mode-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: rgba(122, 82, 244, 0.1);
+  border: 1px solid rgba(122, 82, 244, 0.15);
+  color: var(--text-accent, #A78BFA);
+  flex-shrink: 0;
+  transition: color 0.25s ease;
+}
+.mode-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mode-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+.mode-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted, #64748B);
+}
+.mode-arrow {
+  color: var(--text-muted, #64748B);
+  transition: transform 0.25s ease;
+}
+.access-mode-btn:hover .mode-arrow {
+  transform: translateX(3px);
+  color: var(--text-secondary, #94A3B8);
+}
+
+/* Form */
+.access-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.access-form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.access-back {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #94A3B8);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: inherit;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+.access-back:hover {
+  color: var(--text-primary, #F1F5F9);
+  background: rgba(255, 255, 255, 0.05);
+}
+.access-mode-tag {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(122, 82, 244, 0.12);
+  color: var(--text-accent, #A78BFA);
+  font-weight: 500;
+}
+
+.access-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.access-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #94A3B8);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.access-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.access-input {
+  width: 100%;
+  padding: 14px 44px 14px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  color: var(--text-primary, #F1F5F9);
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  transition: all 0.25s ease;
+  outline: none;
+}
+.access-input::placeholder {
+  color: var(--text-muted, #64748B);
+  font-weight: 400;
+}
+.access-input:focus {
+  border-color: rgba(122, 82, 244, 0.4);
+  box-shadow: 0 0 0 3px rgba(122, 82, 244, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+}
+.access-toggle-vis {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--text-muted, #64748B);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  transition: color 0.2s ease;
+}
+.access-toggle-vis:hover {
+  color: var(--text-primary, #F1F5F9);
+}
+
+.access-error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #FCA5A5;
+  font-size: 0.82rem;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease;
+}
+
+.access-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #7A52F4, #00D2FF);
+  color: white;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px rgba(122, 82, 244, 0.25);
+}
+.access-submit:hover:not(:disabled) {
+  background: linear-gradient(135deg, #8B63FF, #00E5FF);
+  box-shadow: 0 6px 28px rgba(122, 82, 244, 0.4);
+  transform: translateY(-1px);
+}
+.access-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.access-quota-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted, #64748B);
+  font-weight: 400;
+}
+
+/* Footer */
+.access-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 28px;
+  font-size: 0.7rem;
+  color: var(--text-muted, #64748B);
+}
+.access-footer strong {
+  color: var(--text-secondary, #94A3B8);
+  font-weight: 600;
+}
+.access-dot {
+  opacity: 0.4;
+}
