@@ -1,14 +1,77 @@
+/**
+ * CKP API Client — v2 with Enterprise Access Gate.
+ *
+ * All authenticated requests automatically attach the Bearer JWT token
+ * from sessionStorage.  The token is set by the AccessModal on login.
+ */
+
 const API_BASE = 'http://localhost:8000/api/v2';
 
+// ---------------------------------------------------------------------------
+// Token helpers
+// ---------------------------------------------------------------------------
+const TOKEN_KEY = 'ckp_access_token';
+const ROLE_KEY  = 'ckp_access_role';
+
+export function getStoredToken()  { return sessionStorage.getItem(TOKEN_KEY); }
+export function getStoredRole()   { return sessionStorage.getItem(ROLE_KEY); }
+export function storeAuth(token, role) {
+  sessionStorage.setItem(TOKEN_KEY, token);
+  sessionStorage.setItem(ROLE_KEY, role);
+}
+export function clearAuth() {
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(ROLE_KEY);
+}
+export function isAuthenticated() { return !!getStoredToken(); }
+
+// ---------------------------------------------------------------------------
+// Core fetch wrapper (auto-attaches JWT)
+// ---------------------------------------------------------------------------
 async function fetchJSON(url, options = {}) {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    ...options,
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  const token = getStoredToken();
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401 || res.status === 403) {
+    // Token expired or invalid — clear auth and force re-login
+    clearAuth();
+    window.dispatchEvent(new CustomEvent('ckp:auth_expired'));
+  }
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const msg = errBody.detail || `HTTP ${res.status}: ${res.statusText}`;
+    throw new Error(msg);
+  }
   return res.json();
 }
 
+// ---------------------------------------------------------------------------
+// Auth Endpoints
+// ---------------------------------------------------------------------------
+export async function verifyAccess(passcode) {
+  return fetchJSON(`${API_BASE}/auth/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ passcode }),
+  });
+}
+
+export async function getQuota() {
+  return fetchJSON(`${API_BASE}/auth/quota`);
+}
+
+export async function logoutSession() {
+  try {
+    await fetchJSON(`${API_BASE}/auth/logout`, { method: 'POST' });
+  } catch { /* swallow — we clear client-side anyway */ }
+  clearAuth();
+}
+
+// ---------------------------------------------------------------------------
+// Query Endpoints
+// ---------------------------------------------------------------------------
 export async function queryAgent(query, sessionId = null, schema = 'healthtech', activeSkill = 'auto', model = 'gemini-3.5-flash') {
   return fetchJSON(`${API_BASE}/query`, {
     method: 'POST',
@@ -24,9 +87,13 @@ export async function streamAgentQuery(
   model = 'gemini-3.5-flash',
   onEvent = () => {}
 ) {
+  const token = getStoredToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const res = await fetch(`${API_BASE}/query/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       query,
       session_id: sessionId,
@@ -36,6 +103,15 @@ export async function streamAgentQuery(
     }),
   });
 
+  if (res.status === 401 || res.status === 403) {
+    clearAuth();
+    window.dispatchEvent(new CustomEvent('ckp:auth_expired'));
+    throw new Error('Authentication required');
+  }
+  if (res.status === 429) {
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(errBody.detail || 'Demo query limit reached');
+  }
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   }
@@ -70,10 +146,20 @@ export async function streamAgentQuery(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Ingestion Endpoints
+// ---------------------------------------------------------------------------
 export async function ingestFile(file, schema = 'healthtech', chunkSize = 512, overlap = 64) {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${API_BASE}/ingest?schema_name=${schema}&chunk_size=${chunkSize}&chunk_overlap=${overlap}`, { method: 'POST', body: form });
+  const token = getStoredToken();
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}/ingest?schema_name=${schema}&chunk_size=${chunkSize}&chunk_overlap=${overlap}`, {
+    method: 'POST',
+    headers,
+    body: form,
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -140,7 +226,6 @@ export async function deleteSession(sessionId) {
 }
 
 export async function exportUKA(sessionId) {
-  // Download the ZIP file directly
   window.open(`${API_BASE}/sessions/${sessionId}/export?format=zip`, '_blank');
 }
 
@@ -148,8 +233,12 @@ export async function importUKA(file, sessionId = null) {
   const form = new FormData();
   form.append('file', file);
   if (sessionId) form.append('session_id', sessionId);
+  const token = getStoredToken();
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}/uka/import`, {
     method: 'POST',
+    headers,
     body: form,
   });
   if (!res.ok) {
@@ -222,3 +311,35 @@ export async function triggerCrawlerWebhook(filename, content = '', schemaName =
   });
 }
 
+// Reconciliation APIs (Self-Healing Knowledge Agent)
+export async function scanDuplicates(label = null, threshold = 0.85) {
+  return fetchJSON(`${API_BASE}/reconciliation/scan`, {
+    method: 'POST',
+    body: JSON.stringify({ label, threshold }),
+  });
+}
+
+export async function executeMerge(candidate, dryRun = false) {
+  return fetchJSON(`${API_BASE}/reconciliation/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ candidate, dry_run: dryRun }),
+  });
+}
+
+export async function autoMergeDuplicates(threshold = 0.9, label = null, dryRun = false) {
+  return fetchJSON(`${API_BASE}/reconciliation/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ auto_merge_threshold: threshold, label, dry_run: dryRun }),
+  });
+}
+
+export async function getReconciliationAudit(limit = 50) {
+  return fetchJSON(`${API_BASE}/reconciliation/audit?limit=${limit}`);
+}
+
+export async function rollbackMerge(mergeId) {
+  return fetchJSON(`${API_BASE}/reconciliation/rollback`, {
+    method: 'POST',
+    body: JSON.stringify({ merge_id: mergeId }),
+  });
+}

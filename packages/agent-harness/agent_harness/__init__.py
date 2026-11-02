@@ -18,10 +18,20 @@ __version__ = "0.1.0"
 
 from .context_engine import ContextEngine, CanonicalMessage, DistilledMemoryState
 from .uka_export import UKAExporter
+from .reconciler import (
+    KnowledgeReconciler,
+    DuplicateCandidate,
+    MergeAuditRecord,
+    ReconciliationAuditStore,
+)
 
 __all__ = [
     "ContextEngine",
     "CanonicalMessage",
     "DistilledMemoryState",
     "UKAExporter",
+    "KnowledgeReconciler",
+    "DuplicateCandidate",
+    "MergeAuditRecord",
+    "ReconciliationAuditStore",
 ]

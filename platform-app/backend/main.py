@@ -100,6 +100,11 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Neo4j driver not available (non-fatal): {e}")
 
+    # Initialize Enterprise Access Gate (Auth)
+    from backend.auth.service import AuthService
+    app.state.auth_service = AuthService()
+    logger.info("Enterprise Access Gate initialized")
+
     # Initialize Autonomous Data Crawler Service
     from backend.crawler.service import CrawlerService
     watch_dir = os.getenv("CKP_CRAWLER_WATCH_DIR", "data/incoming")
@@ -116,6 +121,14 @@ async def lifespan(app: FastAPI):
             logger.info("Autonomous Crawler Service started in background")
         except Exception as e:
             logger.warning(f"Failed to start Crawler Service: {e}")
+
+    # Initialize Self-Healing Knowledge Reconciler Agent
+    from agent_harness.reconciler import KnowledgeReconciler
+    app.state.reconciler = KnowledgeReconciler(
+        neo4j_driver=app.state.neo4j_driver,
+        qdrant_client=app.state.qdrant_client,
+    )
+    logger.info("Knowledge Reconciler Agent initialized")
 
     logger.info("CKP Platform ready")
     yield

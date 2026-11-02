@@ -14,7 +14,7 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
 from pydantic import BaseModel, Field
 
 from agent_harness.skills.skill_builder_agent import SkillBuilderAgent
@@ -24,6 +24,9 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 import json
 import tempfile
 from pathlib import Path
+
+from backend.auth.dependencies import get_current_user, require_admin, enforce_quota
+from backend.auth.service import AuthService, AccessRole, TokenPayload
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,62 @@ class CrawlerWebhookRequest(BaseModel):
     schema_name: Optional[str] = Field(default=None, description="Optional explicit schema override")
     metadata: Optional[dict] = Field(default=None, description="Additional document metadata")
 
+
+
+# ---------------------------------------------------------------------------
+# Auth Endpoints (Enterprise Access Gate)
+# ---------------------------------------------------------------------------
+class AuthVerifyRequest(BaseModel):
+    """Passcode verification request."""
+    passcode: str = Field(description="Admin key or demo code")
+
+
+@router.post("/auth/verify")
+async def verify_access(body: AuthVerifyRequest, request: Request):
+    """
+    Verify a passcode and issue a signed JWT access token.
+    Returns the token, role, and quota info.
+    """
+    auth: AuthService = getattr(request.app.state, "auth_service", None)
+    if not auth:
+        raise HTTPException(status_code=503, detail="Auth service not initialized")
+
+    role = auth.verify_passcode(body.passcode)
+    if role is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid passcode. Please try again.",
+        )
+
+    session_id = str(uuid.uuid4())
+    token = auth.issue_token(role, session_id)
+    quota = auth.get_quota_info(session_id)
+
+    return {
+        "token": token,
+        "role": role.value,
+        "session_id": session_id,
+        **quota,
+    }
+
+
+@router.get("/auth/quota")
+async def get_quota(request: Request, user: TokenPayload = Depends(get_current_user)):
+    """Get current session quota info."""
+    auth: AuthService = getattr(request.app.state, "auth_service", None)
+    if not auth:
+        raise HTTPException(status_code=503, detail="Auth service not initialized")
+    return auth.get_quota_info(user.session_id)
+
+
+@router.post("/auth/logout")
+async def logout(request: Request, user: TokenPayload = Depends(get_current_user)):
+    """Revoke the current session."""
+    auth: AuthService = getattr(request.app.state, "auth_service", None)
+    if not auth:
+        raise HTTPException(status_code=503, detail="Auth service not initialized")
+    auth.revoke_session(user.session_id)
+    return {"status": "logged_out", "session_id": user.session_id}
 
 
 # ---------------------------------------------------------------------------
@@ -295,9 +354,10 @@ def collect_rich_sources(steps, schema_name: str, skill_name: str) -> list[dict]
 # Query Endpoints
 # ---------------------------------------------------------------------------
 @router.post("/query", response_model=QueryResponse)
-async def query_agent(request_body: QueryRequest, request: Request):
+async def query_agent(request_body: QueryRequest, request: Request, user: TokenPayload = Depends(enforce_quota)):
     """
     Send a natural language query to the CKP agent (synchronous batch mode).
+    Requires authentication. Demo sessions are rate-limited.
     """
     runner, routing_decision, skill_name, gateway = resolve_routing_and_skill(request_body, request)
     active_sid = request_body.session_id or str(uuid.uuid4())
@@ -386,9 +446,10 @@ async def query_agent(request_body: QueryRequest, request: Request):
 
 
 @router.post("/query/stream")
-async def stream_query_endpoint(request_body: QueryRequest, request: Request):
+async def stream_query_endpoint(request_body: QueryRequest, request: Request, user: TokenPayload = Depends(enforce_quota)):
     """
     Server-Sent Events (SSE) streaming endpoint for real-time thinking trace and token generation.
+    Requires authentication. Demo sessions are rate-limited.
     """
     runner, routing_decision, skill_name, gateway = resolve_routing_and_skill(request_body, request)
     active_sid = request_body.session_id or str(uuid.uuid4())
@@ -593,6 +654,7 @@ async def ingest_file(
     schema_name: str = "healthtech",
     chunk_size: int = 512,
     chunk_overlap: int = 64,
+    user: TokenPayload = Depends(get_current_user),
 ):
     """
     Upload and ingest a file into the knowledge platform.
@@ -770,7 +832,7 @@ async def get_admin_config():
     return {}
 
 @router.post("/admin/config")
-async def save_admin_config(request: AdminConfigRequest):
+async def save_admin_config(request: AdminConfigRequest, user: TokenPayload = Depends(require_admin)):
     """Save admin dashboard configuration."""
     try:
         os.makedirs(os.path.dirname(ADMIN_CONFIG_PATH) or ".", exist_ok=True)
@@ -949,7 +1011,7 @@ async def get_crawler_status(request: Request):
 
 
 @router.post("/crawler/toggle")
-async def toggle_crawler(request: Request, body: CrawlerToggleRequest = CrawlerToggleRequest()):
+async def toggle_crawler(request: Request, body: CrawlerToggleRequest = CrawlerToggleRequest(), user: TokenPayload = Depends(require_admin)):
     """Start, pause, or resume the background crawler."""
     crawler = getattr(request.app.state, "crawler", None)
     if not crawler:
@@ -983,7 +1045,7 @@ async def get_crawler_logs(request: Request, limit: int = 50):
 
 
 @router.post("/crawler/scan-now")
-async def scan_crawler_now(request: Request):
+async def scan_crawler_now(request: Request, user: TokenPayload = Depends(require_admin)):
     """Trigger an immediate scan across all storage drop points."""
     crawler = getattr(request.app.state, "crawler", None)
     if not crawler:
@@ -993,7 +1055,7 @@ async def scan_crawler_now(request: Request):
 
 
 @router.post("/crawler/webhook")
-async def crawler_webhook(request: Request, body: CrawlerWebhookRequest):
+async def crawler_webhook(request: Request, body: CrawlerWebhookRequest, user: TokenPayload = Depends(get_current_user)):
     """
     External webhook trigger for automated enterprise data pipelines.
     Accepts raw text or base64 payload.
@@ -1016,5 +1078,152 @@ async def crawler_webhook(request: Request, body: CrawlerWebhookRequest):
         "detected_domain": event.detected_domain,
         "status": event.status,
         "error_message": event.error_message,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Self-Healing Knowledge Reconciler Endpoints
+# ---------------------------------------------------------------------------
+class ReconciliationScanRequest(BaseModel):
+    """Parameters for scanning duplicate entity nodes."""
+    label: Optional[str] = Field(default=None, description="Optional entity label filter (e.g. Doctor, Medication)")
+    threshold: Optional[float] = Field(default=0.85, description="Similarity threshold (0.0 to 1.0)")
+
+
+class ReconciliationMergeRequest(BaseModel):
+    """Request to execute duplicate entity node merge."""
+    candidate: Optional[dict] = Field(default=None, description="Specific DuplicateCandidate payload")
+    auto_merge_threshold: Optional[float] = Field(default=None, description="Threshold above which to auto-merge all candidates")
+    label: Optional[str] = Field(default=None, description="Optional entity label for batch auto-merge")
+    dry_run: bool = Field(default=False, description="Preview merge without applying mutations")
+
+
+class ReconciliationRollbackRequest(BaseModel):
+    """Request to rollback a previous merge."""
+    merge_id: str = Field(description="Unique merge ID to rollback")
+
+
+@router.post("/reconciliation/scan")
+async def scan_duplicates(
+    request: Request,
+    body: ReconciliationScanRequest = ReconciliationScanRequest(),
+    user: TokenPayload = Depends(get_current_user),
+):
+    """
+    Scan graph nodes and vector chunk entities to identify duplicate entity pairs.
+    """
+    reconciler = getattr(request.app.state, "reconciler", None)
+    if not reconciler:
+        from agent_harness.reconciler import KnowledgeReconciler
+        reconciler = KnowledgeReconciler(
+            neo4j_driver=getattr(request.app.state, "neo4j_driver", None),
+            qdrant_client=getattr(request.app.state, "qdrant_client", None),
+        )
+        request.app.state.reconciler = reconciler
+
+    candidates = await reconciler.scan_duplicates(
+        label=body.label,
+        threshold=body.threshold,
+    )
+    return {
+        "count": len(candidates),
+        "threshold": body.threshold,
+        "candidates": [c.to_dict() for c in candidates],
+    }
+
+
+@router.post("/reconciliation/merge")
+async def execute_merge(
+    request: Request,
+    body: ReconciliationMergeRequest,
+    user: TokenPayload = Depends(require_admin),
+):
+    """
+    Execute duplicate entity merge (atomic Cypher edge redirection + Qdrant sync + SQLite audit).
+    Requires admin role.
+    """
+    reconciler = getattr(request.app.state, "reconciler", None)
+    if not reconciler:
+        raise HTTPException(status_code=503, detail="Knowledge Reconciler not initialized")
+
+    from agent_harness.reconciler import DuplicateCandidate
+
+    results = []
+    if body.candidate:
+        cand_data = body.candidate
+        candidate = DuplicateCandidate(
+            source_id=cand_data["source_id"],
+            canonical_id=cand_data["canonical_id"],
+            entity_label=cand_data.get("entity_label", "Entity"),
+            source_name=cand_data.get("source_name", cand_data["source_id"]),
+            canonical_name=cand_data.get("canonical_name", cand_data["canonical_id"]),
+            similarity_score=float(cand_data.get("similarity_score", 1.0)),
+            match_reasons=cand_data.get("match_reasons", []),
+            source_props=cand_data.get("source_props", {}),
+            canonical_props=cand_data.get("canonical_props", {}),
+        )
+        record = await reconciler.execute_merge(candidate, dry_run=body.dry_run)
+        results.append(record.to_dict())
+    elif body.auto_merge_threshold is not None:
+        candidates = await reconciler.scan_duplicates(
+            label=body.label,
+            threshold=body.auto_merge_threshold,
+        )
+        for cand in candidates:
+            rec = await reconciler.execute_merge(cand, dry_run=body.dry_run)
+            results.append(rec.to_dict())
+    else:
+        raise HTTPException(status_code=400, detail="Must provide candidate or auto_merge_threshold")
+
+    return {
+        "status": "success",
+        "dry_run": body.dry_run,
+        "merged_count": len(results),
+        "records": results,
+    }
+
+
+@router.get("/reconciliation/audit")
+async def get_reconciliation_audit(
+    request: Request,
+    limit: int = 50,
+    user: TokenPayload = Depends(require_admin),
+):
+    """
+    Retrieve audit history of knowledge graph mergers.
+    Requires admin role.
+    """
+    reconciler = getattr(request.app.state, "reconciler", None)
+    if not reconciler:
+        raise HTTPException(status_code=503, detail="Knowledge Reconciler not initialized")
+
+    history = reconciler.audit_store.list_merges(limit=limit)
+    return {
+        "count": len(history),
+        "history": [h.to_dict() for h in history],
+    }
+
+
+@router.post("/reconciliation/rollback")
+async def rollback_merge(
+    request: Request,
+    body: ReconciliationRollbackRequest,
+    user: TokenPayload = Depends(require_admin),
+):
+    """
+    Roll back an entity merge from the audit log, restoring the duplicate node.
+    Requires admin role.
+    """
+    reconciler = getattr(request.app.state, "reconciler", None)
+    if not reconciler:
+        raise HTTPException(status_code=503, detail="Knowledge Reconciler not initialized")
+
+    success = await reconciler.rollback_merge(body.merge_id)
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Rollback failed or merge {body.merge_id} already reverted")
+
+    return {
+        "status": "rolled_back",
+        "merge_id": body.merge_id,
     }
 

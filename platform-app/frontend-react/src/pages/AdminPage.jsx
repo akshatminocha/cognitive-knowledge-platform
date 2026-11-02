@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import {
   Shield, Zap, GitBranch, Eye, EyeOff, Mail, Phone, CreditCard,
   Hash, Calendar, Globe, SlidersHorizontal, Timer, Database,
-  ArrowRightLeft, Boxes, CircleDot, Save, RotateCcw, Settings
+  ArrowRightLeft, Boxes, CircleDot, Save, RotateCcw, Settings, Sparkles
 } from 'lucide-react';
+import ReconciliationPanel from '../components/ReconciliationPanel';
 import './AdminPage.css';
 
 // ─── Default Guardrails Config ─────────────────────────────────────────────────
@@ -72,6 +73,7 @@ const TABS = [
   { id: 'guardrails', label: 'Guardrails', icon: Shield },
   { id: 'gateway', label: 'Gateway', icon: Zap },
   { id: 'ontology', label: 'Ontology', icon: GitBranch },
+  { id: 'reconciliation', label: 'Self-Healing Graph', icon: Sparkles },
 ];
 
 export default function AdminPage() {
@@ -331,6 +333,9 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* ─── Tab 4: Self-Healing Knowledge Graph (Reconciliation) ──────── */}
+      {activeTab === 'reconciliation' && <ReconciliationPanel />}
 
       {/* ─── Save Bar ────────────────────────────────────────────────────── */}
       {hasChanges && (
