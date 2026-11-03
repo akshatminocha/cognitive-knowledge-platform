@@ -8,6 +8,7 @@ import LibraryPage from './pages/LibraryPage';
 import DiagnosticsPage from './pages/DiagnosticsPage';
 import MonitoringPage from './pages/MonitoringPage';
 import AdminPage from './pages/AdminPage';
+import AlertsPage from './pages/AlertsPage';
 import { isAuthenticated, clearAuth, getStoredRole, getQuota } from './api/client';
 import './App.css';
 
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="/" element={<ChatPage />} />
           <Route path="/ingest" element={<IngestPage />} />
           <Route path="/library" element={<LibraryPage />} />
+          <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/monitoring" element={<MonitoringPage />} />
           <Route path="/diagnostics" element={<DiagnosticsPage />} />
           <Route path="/admin" element={<AdminPage />} />

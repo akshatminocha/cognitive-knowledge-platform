@@ -73,6 +73,8 @@ class IngestionPipeline:
         ontology_manager: Optional[OntologyManager] = None,
         qdrant_client: Any = None,
         neo4j_driver: Any = None,
+        alert_engine: Any = None,
+        evolution_store: Any = None,
     ) -> None:
         self.schema_name = schema_name
         self.loader = FileLoader()
@@ -84,6 +86,8 @@ class IngestionPipeline:
         self.ontology_manager = ontology_manager or OntologyManager()
         self.qdrant_client = qdrant_client
         self.neo4j_driver = neo4j_driver
+        self.alert_engine = alert_engine
+        self.evolution_store = evolution_store
 
     async def ingest_file(
         self,
@@ -156,6 +160,44 @@ class IngestionPipeline:
                     f"Extracted {result.entities_extracted} entities, "
                     f"{result.relationships_extracted} relationships"
                 )
+
+                # Evaluate standing alert rules against newly extracted entities
+                if self.alert_engine and extractions:
+                    try:
+                        all_entity_dicts = []
+                        for ext in extractions:
+                            for ent in ext.entities:
+                                ent_dict = dict(ent.properties) if hasattr(ent, "properties") else {}
+                                ent_dict["name"] = getattr(ent, "name", "")
+                                ent_dict["_label"] = getattr(ent, "entity_type", "Entity")
+                                all_entity_dicts.append(ent_dict)
+                        if all_entity_dicts:
+                            await self.alert_engine.evaluate_entities(all_entity_dicts, source_name=result.filename)
+                    except Exception as alert_err:
+                        logger.warning(f"Standing alert evaluation error (non-fatal): {alert_err}")
+
+                # Record emerging unmapped candidate concepts for ontology evolution
+                if self.evolution_store and extractions:
+                    try:
+                        for ext in extractions:
+                            for unrec in getattr(ext, "unrecognized_entities", []):
+                                self.evolution_store.record_candidate(
+                                    name=unrec["name"],
+                                    category="entity",
+                                    context=unrec.get("context"),
+                                    source_doc=result.filename,
+                                    properties=unrec.get("properties"),
+                                )
+                            for unrec in getattr(ext, "unrecognized_relationships", []):
+                                self.evolution_store.record_candidate(
+                                    name=unrec["name"],
+                                    category="relationship",
+                                    context=unrec.get("context"),
+                                    source_doc=result.filename,
+                                    properties=unrec.get("properties"),
+                                )
+                    except Exception as evol_err:
+                        logger.warning(f"Failed to record unrecognized concepts (non-fatal): {evol_err}")
             except Exception as e:
                 logger.warning(f"Entity extraction failed (non-fatal): {e}")
                 result.errors.append(f"Extraction warning: {e}")

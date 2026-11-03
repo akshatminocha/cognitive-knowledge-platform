@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { MessageSquare, Upload, Library, Activity, Brain, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Settings, BarChart3, LogOut, ShieldCheck, Eye } from 'lucide-react';
-import { getHealth, getSchemas, logoutSession, getStoredRole } from '../api/client';
+import { MessageSquare, Upload, Library, Activity, Brain, ChevronLeft, ChevronRight, CheckCircle2, XCircle, Settings, BarChart3, LogOut, ShieldCheck, Eye, Bell } from 'lucide-react';
+import { getHealth, getSchemas, logoutSession, getStoredRole, getUnreadAlertsCount } from '../api/client';
 import './Layout.css';
 
 const NAV_ITEMS = [
   { path: '/', icon: MessageSquare, label: 'Chat' },
   { path: '/ingest', icon: Upload, label: 'Ingest' },
   { path: '/library', icon: Library, label: 'Library' },
+  { path: '/alerts', icon: Bell, label: 'Alerts', isAlerts: true },
   { path: '/monitoring', icon: BarChart3, label: 'Monitoring' },
   { path: '/diagnostics', icon: Activity, label: 'Diagnostics' },
   { path: '/admin', icon: Settings, label: 'Admin' },
@@ -18,12 +19,26 @@ export default function Layout({ children, quota, onLogout }) {
   const [health, setHealth] = useState({});
   const [schemas, setSchemas] = useState([]);
   const [activeSchema, setActiveSchema] = useState('healthtech');
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
   const location = useLocation();
 
   useEffect(() => {
     getHealth().then(setHealth);
     getSchemas().then(s => { setSchemas(s); if (s.length) setActiveSchema(s[0]); });
-    const interval = setInterval(() => getHealth().then(setHealth), 15000);
+    
+    const fetchUnread = () => {
+      getUnreadAlertsCount().then(d => {
+        if (d && typeof d.unread_count === 'number') {
+          setUnreadAlerts(d.unread_count);
+        }
+      }).catch(() => {});
+    };
+    fetchUnread();
+
+    const interval = setInterval(() => {
+      getHealth().then(setHealth);
+      fetchUnread();
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -86,6 +101,12 @@ export default function Layout({ children, quota, onLogout }) {
             >
               <span className="nav-icon"><item.icon size={20} /></span>
               {!collapsed && <span className="nav-label">{item.label}</span>}
+              {item.isAlerts && unreadAlerts > 0 && !collapsed && (
+                <span className="nav-badge-pill">{unreadAlerts}</span>
+              )}
+              {item.isAlerts && unreadAlerts > 0 && collapsed && (
+                <span className="nav-badge-dot" />
+              )}
             </NavLink>
           ))}
         </nav>

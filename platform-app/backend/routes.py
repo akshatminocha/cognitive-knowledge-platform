@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Request
 from pydantic import BaseModel, Field
@@ -685,6 +685,7 @@ async def ingest_file(
         ontology_manager=getattr(request.app.state, "ontology_manager", None),
         qdrant_client=getattr(request.app.state, "qdrant_client", None),
         neo4j_driver=getattr(request.app.state, "neo4j_driver", None),
+        alert_engine=getattr(request.app.state, "alert_engine", None),
     )
 
     # Read file bytes and ingest
@@ -1226,4 +1227,382 @@ async def rollback_merge(
         "status": "rolled_back",
         "merge_id": body.merge_id,
     }
+
+
+# ---------------------------------------------------------------------------
+# Proactive Alerting & Standing Goals Endpoints
+# ---------------------------------------------------------------------------
+class CreateRuleRequest(BaseModel):
+    """Request model for creating a standing rule."""
+    name: str = Field(description="Display title of the rule")
+    description: str = Field(default="", description="Detailed clinical/operational explanation")
+    rule_type: str = Field(default="property_threshold", description="'property_threshold' or 'cypher'")
+    target_label: str = Field(default="Observation", description="Target graph entity label")
+    property_name: Optional[str] = Field(default="value", description="Target property name")
+    operator: str = Field(default=">", description="Comparison operator (>, <, >=, <=, ==, !=, contains, in)")
+    threshold_value: Any = Field(default=5.5, description="Threshold value for evaluation")
+    cypher_query: Optional[str] = Field(default=None, description="Cypher query for graph pattern rules")
+    severity: str = Field(default="WARNING", description="'INFO', 'WARNING', or 'CRITICAL'")
+    webhook_url: Optional[str] = Field(default=None, description="Optional webhook URL for notifications")
+    enabled: bool = Field(default=True, description="Whether the rule is actively monitored")
+
+
+class UpdateRuleRequest(BaseModel):
+    """Request model for modifying a standing rule."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    rule_type: Optional[str] = None
+    target_label: Optional[str] = None
+    property_name: Optional[str] = None
+    operator: Optional[str] = None
+    threshold_value: Optional[Any] = None
+    cypher_query: Optional[str] = None
+    severity: Optional[str] = None
+    webhook_url: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@router.get("/alerts/rules")
+async def list_alert_rules(
+    request: Request,
+    enabled_only: bool = False,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """List standing goal rules."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        from backend.alerts.engine import AlertEngine
+        engine = AlertEngine(neo4j_driver=getattr(request.app.state, "neo4j_driver", None))
+        request.app.state.alert_engine = engine
+
+    rules = engine.store.list_rules(enabled_only=enabled_only)
+    return {
+        "count": len(rules),
+        "rules": [r.to_dict() for r in rules],
+    }
+
+
+@router.post("/alerts/rules")
+async def create_alert_rule(
+    request: Request,
+    body: CreateRuleRequest,
+    user: TokenPayload = Depends(require_admin),
+):
+    """Create a new standing goal rule (admin only)."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        raise HTTPException(status_code=503, detail="Alert Engine not initialized")
+
+    from backend.alerts.rules import StandingRule, RuleType, SeverityLevel
+
+    rule = StandingRule(
+        name=body.name,
+        description=body.description,
+        rule_type=RuleType(body.rule_type) if body.rule_type in ("property_threshold", "cypher") else RuleType.PROPERTY_THRESHOLD,
+        target_label=body.target_label,
+        property_name=body.property_name,
+        operator=body.operator,
+        threshold_value=body.threshold_value,
+        cypher_query=body.cypher_query,
+        severity=SeverityLevel(body.severity) if body.severity in ("INFO", "WARNING", "CRITICAL") else SeverityLevel.WARNING,
+        webhook_url=body.webhook_url,
+        enabled=body.enabled,
+    )
+    saved = engine.store.create_rule(rule)
+    return saved.to_dict()
+
+
+@router.put("/alerts/rules/{rule_id}")
+async def update_alert_rule(
+    request: Request,
+    rule_id: str,
+    body: UpdateRuleRequest,
+    user: TokenPayload = Depends(require_admin),
+):
+    """Update an existing standing rule (admin only)."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        raise HTTPException(status_code=503, detail="Alert Engine not initialized")
+
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    updated = engine.store.update_rule(rule_id, updates)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return updated.to_dict()
+
+
+@router.delete("/alerts/rules/{rule_id}")
+async def delete_alert_rule(
+    request: Request,
+    rule_id: str,
+    user: TokenPayload = Depends(require_admin),
+):
+    """Delete a standing rule (admin only)."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        raise HTTPException(status_code=503, detail="Alert Engine not initialized")
+
+    success = engine.store.delete_rule(rule_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "deleted", "rule_id": rule_id}
+
+
+@router.post("/alerts/rules/{rule_id}/toggle")
+async def toggle_alert_rule(
+    request: Request,
+    rule_id: str,
+    user: TokenPayload = Depends(require_admin),
+):
+    """Toggle enabled status of a standing rule (admin only)."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        raise HTTPException(status_code=503, detail="Alert Engine not initialized")
+
+    rule = engine.store.toggle_rule(rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return rule.to_dict()
+
+
+@router.get("/alerts/feed")
+async def get_alerts_feed(
+    request: Request,
+    status: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = 50,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """Retrieve feed of triggered proactive alerts."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        from backend.alerts.engine import AlertEngine
+        engine = AlertEngine(neo4j_driver=getattr(request.app.state, "neo4j_driver", None))
+        request.app.state.alert_engine = engine
+
+    alerts = engine.store.list_alerts(status=status, severity=severity, limit=limit)
+    return {
+        "count": len(alerts),
+        "alerts": [a.to_dict() for a in alerts],
+    }
+
+
+@router.post("/alerts/{alert_id}/read")
+async def mark_alert_read(
+    request: Request,
+    alert_id: str,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """Mark an alert event as read."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        raise HTTPException(status_code=503, detail="Alert Engine not initialized")
+
+    success = engine.store.mark_alert_read(alert_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "read", "alert_id": alert_id}
+
+
+@router.post("/alerts/{alert_id}/dismiss")
+async def dismiss_alert(
+    request: Request,
+    alert_id: str,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """Dismiss an alert event."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        raise HTTPException(status_code=503, detail="Alert Engine not initialized")
+
+    success = engine.store.dismiss_alert(alert_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return {"status": "dismissed", "alert_id": alert_id}
+
+
+@router.get("/alerts/unread-count")
+async def get_unread_alerts_count(
+    request: Request,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """Get the current count of unread alerts for UI badge."""
+    engine = getattr(request.app.state, "alert_engine", None)
+    if not engine:
+        from backend.alerts.engine import AlertEngine
+        engine = AlertEngine(neo4j_driver=getattr(request.app.state, "neo4j_driver", None))
+        request.app.state.alert_engine = engine
+
+    count = engine.store.get_unread_count()
+    return {"unread_count": count}
+
+
+# ---------------------------------------------------------------------------
+# Dynamic Ontology Evolution Endpoints
+# ---------------------------------------------------------------------------
+
+class RecordCandidateRequest(BaseModel):
+    name: str
+    category: str = "entity"
+    context: Optional[str] = None
+    source_doc: Optional[str] = None
+    properties: Optional[list[str]] = None
+
+
+class GenerateProposalRequest(BaseModel):
+    schema_name: str = "healthtech"
+    cluster_name: str
+    description: Optional[str] = None
+
+
+class ReviewProposalRequest(BaseModel):
+    notes: Optional[str] = ""
+
+
+def _get_evolution_service(request: Request):
+    svc = getattr(request.app.state, "evolution_service", None)
+    if not svc:
+        from ontology_engine.evolution import EvolutionService
+        mgr = getattr(request.app.state, "ontology_manager", None)
+        svc = EvolutionService(ontology_manager=mgr)
+        request.app.state.evolution_service = svc
+    return svc
+
+
+@router.get("/ontology/evolution/candidates")
+async def get_evolution_candidates(
+    request: Request,
+    category: Optional[str] = None,
+    min_occurrences: int = 1,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """Retrieve unmapped candidate concepts and semantic clusters."""
+    svc = _get_evolution_service(request)
+    candidates = svc.store.list_candidates(category=category, min_occurrences=min_occurrences)
+    clusters = svc.get_candidate_clusters(category=category, min_occurrences=min_occurrences)
+    return {
+        "candidates": [c.to_dict() for c in candidates],
+        "clusters": [cl.to_dict() for cl in clusters],
+        "total_candidates": len(candidates),
+        "total_clusters": len(clusters),
+    }
+
+
+@router.post("/ontology/evolution/candidates")
+async def record_candidate_concept(
+    request: Request,
+    body: RecordCandidateRequest,
+    user: TokenPayload = Depends(require_admin),
+):
+    """Record an emerging unmapped candidate concept into the evolution registry."""
+    svc = _get_evolution_service(request)
+    cand = svc.store.record_candidate(
+        name=body.name,
+        category=body.category,
+        context=body.context,
+        source_doc=body.source_doc,
+        properties=body.properties,
+    )
+    return {"status": "recorded", "candidate": cand.to_dict()}
+
+
+@router.post("/ontology/evolution/candidates/{name}/dismiss")
+async def dismiss_candidate_concept(
+    request: Request,
+    name: str,
+    user: TokenPayload = Depends(require_admin),
+):
+    """Dismiss an unmapped candidate concept from consideration."""
+    svc = _get_evolution_service(request)
+    success = svc.store.dismiss_candidate(name)
+    if not success:
+        raise HTTPException(status_code=404, detail="Candidate concept not found")
+    return {"status": "dismissed", "name": name}
+
+
+@router.post("/ontology/evolution/proposals/generate")
+async def generate_evolution_proposal(
+    request: Request,
+    body: GenerateProposalRequest,
+    user: TokenPayload = Depends(require_admin),
+):
+    """Synthesize a compliant schema evolution proposal with Palantir constraints and graph impact assessment."""
+    svc = _get_evolution_service(request)
+    try:
+        proposal = svc.generate_proposal_for_cluster(
+            schema_name=body.schema_name,
+            cluster_name=body.cluster_name,
+            custom_description=body.description,
+        )
+        return {"status": "generated", "proposal": proposal.to_dict()}
+    except Exception as e:
+        logger.error(f"Failed to generate evolution proposal: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to generate proposal: {str(e)}")
+
+
+@router.get("/ontology/evolution/proposals")
+async def list_evolution_proposals(
+    request: Request,
+    status: Optional[str] = None,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """List schema evolution proposals."""
+    svc = _get_evolution_service(request)
+    proposals = svc.store.list_proposals(status=status)
+    return {
+        "proposals": [p.to_dict() for p in proposals],
+        "total": len(proposals),
+    }
+
+
+@router.get("/ontology/evolution/proposals/{proposal_id}")
+async def get_evolution_proposal(
+    request: Request,
+    proposal_id: str,
+    user: TokenPayload = Depends(get_current_user),
+):
+    """Get detailed schema evolution proposal including full YAML diff."""
+    svc = _get_evolution_service(request)
+    proposal = svc.store.get_proposal(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    return {"proposal": proposal.to_dict()}
+
+
+@router.post("/ontology/evolution/proposals/{proposal_id}/approve")
+async def approve_evolution_proposal(
+    request: Request,
+    proposal_id: str,
+    body: ReviewProposalRequest = ReviewProposalRequest(),
+    user: TokenPayload = Depends(require_admin),
+):
+    """Approve, apply to disk, hot-reload schema, and mark proposal as APPROVED."""
+    svc = _get_evolution_service(request)
+    try:
+        result = svc.approve_and_apply_proposal(proposal_id, review_notes=body.notes or "")
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error approving proposal: {e}")
+        raise HTTPException(status_code=500, detail=f"Approval failed: {str(e)}")
+
+
+@router.post("/ontology/evolution/proposals/{proposal_id}/reject")
+async def reject_evolution_proposal(
+    request: Request,
+    proposal_id: str,
+    body: ReviewProposalRequest = ReviewProposalRequest(),
+    user: TokenPayload = Depends(require_admin),
+):
+    """Reject a schema evolution proposal."""
+    svc = _get_evolution_service(request)
+    try:
+        result = svc.reject_proposal(proposal_id, reason=body.notes or "")
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error rejecting proposal: {e}")
+        raise HTTPException(status_code=500, detail=f"Rejection failed: {str(e)}")
 

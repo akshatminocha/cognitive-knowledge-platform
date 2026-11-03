@@ -74,6 +74,8 @@ class CrawlerService:
         ontology_manager: Any = None,
         qdrant_client: Any = None,
         neo4j_driver: Any = None,
+        alert_engine: Any = None,
+        evolution_store: Any = None,
         poll_interval_seconds: float = 15.0,
         max_log_entries: int = 200,
     ) -> None:
@@ -82,6 +84,8 @@ class CrawlerService:
         self.ontology_manager = ontology_manager
         self.qdrant_client = qdrant_client
         self.neo4j_driver = neo4j_driver
+        self.alert_engine = alert_engine
+        self.evolution_store = evolution_store
         self.poll_interval = poll_interval_seconds
 
         self.status = CrawlerStatus.STOPPED
@@ -308,6 +312,8 @@ class CrawlerService:
                         ontology_manager=self.ontology_manager,
                         qdrant_client=self.qdrant_client,
                         neo4j_driver=self.neo4j_driver,
+                        alert_engine=self.alert_engine,
+                        evolution_store=self.evolution_store,
                     )
 
                     result = await pipeline.ingest_file(file_path=file_path, metadata=meta)

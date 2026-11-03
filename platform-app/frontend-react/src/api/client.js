@@ -343,3 +343,118 @@ export async function rollbackMerge(mergeId) {
     body: JSON.stringify({ merge_id: mergeId }),
   });
 }
+
+// Proactive Alerting & Standing Goals APIs
+export async function listAlertRules(enabledOnly = false) {
+  return fetchJSON(`${API_BASE}/alerts/rules?enabled_only=${enabledOnly}`);
+}
+
+export async function createAlertRule(ruleData) {
+  return fetchJSON(`${API_BASE}/alerts/rules`, {
+    method: 'POST',
+    body: JSON.stringify(ruleData),
+  });
+}
+
+export async function updateAlertRule(ruleId, updates) {
+  return fetchJSON(`${API_BASE}/alerts/rules/${ruleId}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteAlertRule(ruleId) {
+  return fetchJSON(`${API_BASE}/alerts/rules/${ruleId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function toggleAlertRule(ruleId) {
+  return fetchJSON(`${API_BASE}/alerts/rules/${ruleId}/toggle`, {
+    method: 'POST',
+  });
+}
+
+export async function getAlertsFeed(status = null, severity = null, limit = 50) {
+  let url = `${API_BASE}/alerts/feed?limit=${limit}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+  if (severity) url += `&severity=${encodeURIComponent(severity)}`;
+  return fetchJSON(url);
+}
+
+export async function markAlertRead(alertId) {
+  return fetchJSON(`${API_BASE}/alerts/${alertId}/read`, {
+    method: 'POST',
+  });
+}
+
+export async function dismissAlert(alertId) {
+  return fetchJSON(`${API_BASE}/alerts/${alertId}/dismiss`, {
+    method: 'POST',
+  });
+}
+
+export async function getUnreadAlertsCount() {
+  try {
+    const data = await fetchJSON(`${API_BASE}/alerts/unread-count`);
+    return data.unread_count || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// Dynamic Ontology Evolution APIs
+export async function getEvolutionCandidates(category = null, minOccurrences = 1) {
+  let url = `${API_BASE}/ontology/evolution/candidates?min_occurrences=${minOccurrences}`;
+  if (category) url += `&category=${encodeURIComponent(category)}`;
+  return fetchJSON(url);
+}
+
+export async function recordCandidateConcept(candidateData) {
+  return fetchJSON(`${API_BASE}/ontology/evolution/candidates`, {
+    method: 'POST',
+    body: JSON.stringify(candidateData),
+  });
+}
+
+export async function dismissCandidateConcept(name) {
+  return fetchJSON(`${API_BASE}/ontology/evolution/candidates/${encodeURIComponent(name)}/dismiss`, {
+    method: 'POST',
+  });
+}
+
+export async function generateEvolutionProposal(schemaName, clusterName, description = null) {
+  return fetchJSON(`${API_BASE}/ontology/evolution/proposals/generate`, {
+    method: 'POST',
+    body: JSON.stringify({
+      schema_name: schemaName,
+      cluster_name: clusterName,
+      description,
+    }),
+  });
+}
+
+export async function listEvolutionProposals(status = null) {
+  let url = `${API_BASE}/ontology/evolution/proposals`;
+  if (status) url += `?status=${encodeURIComponent(status)}`;
+  return fetchJSON(url);
+}
+
+export async function getEvolutionProposal(proposalId) {
+  return fetchJSON(`${API_BASE}/ontology/evolution/proposals/${proposalId}`);
+}
+
+export async function approveEvolutionProposal(proposalId, notes = '') {
+  return fetchJSON(`${API_BASE}/ontology/evolution/proposals/${proposalId}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function rejectEvolutionProposal(proposalId, notes = '') {
+  return fetchJSON(`${API_BASE}/ontology/evolution/proposals/${proposalId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ notes }),
+  });
+}
+

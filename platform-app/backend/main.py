@@ -105,6 +105,16 @@ async def lifespan(app: FastAPI):
     app.state.auth_service = AuthService()
     logger.info("Enterprise Access Gate initialized")
 
+    # Initialize Proactive Alerting & Standing Goals Engine
+    from backend.alerts.engine import AlertEngine
+    app.state.alert_engine = AlertEngine(neo4j_driver=app.state.neo4j_driver)
+    logger.info("Proactive Alerting Engine initialized")
+
+    # Initialize Dynamic Ontology Evolution Service
+    from ontology_engine.evolution import EvolutionService
+    app.state.evolution_service = EvolutionService(ontology_manager=app.state.ontology_manager)
+    logger.info("Dynamic Ontology Evolution Service initialized")
+
     # Initialize Autonomous Data Crawler Service
     from backend.crawler.service import CrawlerService
     watch_dir = os.getenv("CKP_CRAWLER_WATCH_DIR", "data/incoming")
@@ -114,6 +124,8 @@ async def lifespan(app: FastAPI):
         ontology_manager=app.state.ontology_manager,
         qdrant_client=app.state.qdrant_client,
         neo4j_driver=app.state.neo4j_driver,
+        alert_engine=app.state.alert_engine,
+        evolution_store=app.state.evolution_service.store,
     )
     if os.getenv("CKP_CRAWLER_ENABLED", "true").lower() in ("true", "1", "yes"):
         try:
