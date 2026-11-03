@@ -14,3 +14,50 @@ not WHERE the data lives.
 """
 
 __version__ = "0.1.0"
+
+from ontology_engine.schema import (
+    DomainSchema,
+    EntityDef,
+    PropertyDef,
+    PropertyType,
+    RelationshipDef,
+)
+from ontology_engine.manager import OntologyManager, SchemaNotFoundError
+from ontology_engine.extractor import (
+    EntityExtractor,
+    ExtractedEntity,
+    ExtractedRelationship,
+    ExtractionResult,
+)
+from ontology_engine.evolution import (
+    CandidateConcept,
+    ConceptCluster,
+    EvolutionProposal,
+    EvolutionService,
+    EvolutionStore,
+    GraphImpactAnalyzer,
+    SchemaEvolutionGenerator,
+    SemanticConceptClusterer,
+)
+
+__all__ = [
+    "DomainSchema",
+    "EntityDef",
+    "PropertyDef",
+    "PropertyType",
+    "RelationshipDef",
+    "OntologyManager",
+    "SchemaNotFoundError",
+    "EntityExtractor",
+    "ExtractedEntity",
+    "ExtractedRelationship",
+    "ExtractionResult",
+    "CandidateConcept",
+    "ConceptCluster",
+    "EvolutionProposal",
+    "EvolutionService",
+    "EvolutionStore",
+    "GraphImpactAnalyzer",
+    "SchemaEvolutionGenerator",
+    "SemanticConceptClusterer",
+]

@@ -5,6 +5,7 @@ import {
   ArrowRightLeft, Boxes, CircleDot, Save, RotateCcw, Settings, Sparkles
 } from 'lucide-react';
 import ReconciliationPanel from '../components/ReconciliationPanel';
+import OntologyEvolutionPanel from '../components/OntologyEvolutionPanel';
 import './AdminPage.css';
 
 // ─── Default Guardrails Config ─────────────────────────────────────────────────
@@ -72,7 +73,8 @@ const DEFAULT_ONTOLOGY = [
 const TABS = [
   { id: 'guardrails', label: 'Guardrails', icon: Shield },
   { id: 'gateway', label: 'Gateway', icon: Zap },
-  { id: 'ontology', label: 'Ontology', icon: GitBranch },
+  { id: 'ontology', label: 'Active Schema', icon: Boxes },
+  { id: 'evolution', label: 'Ontology Evolution', icon: GitBranch },
   { id: 'reconciliation', label: 'Self-Healing Graph', icon: Sparkles },
 ];
 
@@ -334,7 +336,10 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ─── Tab 4: Self-Healing Knowledge Graph (Reconciliation) ──────── */}
+      {/* ─── Tab 4: Dynamic Ontology Evolution (Phase 5) ───────────────── */}
+      {activeTab === 'evolution' && <OntologyEvolutionPanel />}
+
+      {/* ─── Tab 5: Self-Healing Knowledge Graph (Reconciliation) ──────── */}
       {activeTab === 'reconciliation' && <ReconciliationPanel />}
 
       {/* ─── Save Bar ────────────────────────────────────────────────────── */}

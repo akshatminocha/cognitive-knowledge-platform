@@ -44,6 +44,8 @@ class ExtractionResult:
 
     entities: list[ExtractedEntity] = field(default_factory=list)
     relationships: list[ExtractedRelationship] = field(default_factory=list)
+    unrecognized_entities: list[dict[str, Any]] = field(default_factory=list)
+    unrecognized_relationships: list[dict[str, Any]] = field(default_factory=list)
     source_chunk: str = ""
 
 
@@ -184,8 +186,14 @@ Text to extract from:
                         source_text=source_chunk,
                     )
                 )
-            else:
-                logger.debug(f"Skipping unknown entity type: {entity_type}")
+            elif entity_type:
+                logger.debug(f"Candidate unmapped entity type: {entity_type}")
+                result.unrecognized_entities.append({
+                    "name": entity_type,
+                    "category": "entity",
+                    "properties": list(properties.keys()) if isinstance(properties, dict) else [],
+                    "context": source_chunk[:300] if source_chunk else "",
+                })
 
         # Parse relationships
         for raw_rel in data.get("relationships", []):
@@ -200,8 +208,16 @@ Text to extract from:
                         properties=raw_rel.get("properties", {}),
                     )
                 )
-            else:
-                logger.debug(f"Skipping unknown relationship type: {rel_type}")
+            elif rel_type:
+                logger.debug(f"Candidate unmapped relationship type: {rel_type}")
+                result.unrecognized_relationships.append({
+                    "name": rel_type,
+                    "category": "relationship",
+                    "source": raw_rel.get("source", ""),
+                    "target": raw_rel.get("target", ""),
+                    "properties": list(raw_rel.get("properties", {}).keys()) if isinstance(raw_rel.get("properties"), dict) else [],
+                    "context": source_chunk[:300] if source_chunk else "",
+                })
 
         logger.info(
             f"Extracted {len(result.entities)} entities and "
