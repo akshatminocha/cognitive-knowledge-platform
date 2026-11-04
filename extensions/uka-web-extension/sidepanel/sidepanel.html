@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UKA Studio &amp; Inspector</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="panel-layout">
+    <!-- Navigation Tabs -->
+    <header class="panel-header">
+      <div class="panel-brand">
+        <div class="logo-pill">UKA</div>
+        <span class="panel-title">Studio &amp; Inspector</span>
+      </div>
+      <nav class="nav-tabs" role="tablist">
+        <button id="tab-btn-clip" class="nav-tab active" data-tab="tab-clip" role="tab" aria-selected="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+          Clipper
+        </button>
+        <button id="tab-btn-inspect" class="nav-tab" data-tab="tab-inspect" role="tab" aria-selected="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          Inspector
+        </button>
+        <button id="tab-btn-settings" class="nav-tab" data-tab="tab-settings" role="tab" aria-selected="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          Settings
+        </button>
+      </nav>
+    </header>
+
+    <!-- Tab 1: Web Clipper -->
+    <main id="tab-clip" class="tab-pane active" role="tabpanel">
+      <div class="pane-content">
+        <!-- Target Info -->
+        <div class="card meta-card">
+          <div class="meta-row">
+            <span class="badge badge-purple" id="clip-status-badge">Active Tab</span>
+            <button id="btn-refresh-clip" class="icon-text-btn" title="Refresh Page Content">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              Refresh
+            </button>
+          </div>
+          <h2 id="clip-title" class="clip-title">Connecting to active tab...</h2>
+          <a id="clip-url" class="clip-url" href="#" target="_blank" rel="noopener">--</a>
+
+          <div class="stats-ribbon">
+            <div class="ribbon-item">
+              <span class="ribbon-val" id="clip-stat-words">0</span>
+              <span class="ribbon-lbl">Words</span>
+            </div>
+            <div class="ribbon-item">
+              <span class="ribbon-val" id="clip-stat-entities">0</span>
+              <span class="ribbon-lbl">Entities</span>
+            </div>
+            <div class="ribbon-item">
+              <span class="ribbon-val" id="clip-stat-tables">0</span>
+              <span class="ribbon-lbl">Tables</span>
+            </div>
+            <div class="ribbon-item">
+              <span class="ribbon-val" id="clip-stat-images">0</span>
+              <span class="ribbon-lbl">Images</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Domain & Schema -->
+        <div class="card section-card">
+          <label class="section-title" for="clip-domain">Domain Knowledge Schema</label>
+          <select id="clip-domain" class="form-select">
+            <option value="healthtech" selected>Healthcare / Clinical (EHR, ICD-10, Medical)</option>
+            <option value="fintech">Financial / Markets (SEC 10-K, Tickers, Quant)</option>
+            <option value="general">General Enterprise Ontology</option>
+          </select>
+        </div>
+
+        <!-- Entity Tags -->
+        <div class="card section-card">
+          <div class="section-header-flex">
+            <span class="section-title">Extracted Concepts &amp; Entities</span>
+            <span class="badge" id="entity-count-badge">0 found</span>
+          </div>
+          <div id="entities-container" class="tags-container">
+            <span class="empty-text">No entities extracted yet.</span>
+          </div>
+        </div>
+
+        <!-- Markdown Preview Accordion -->
+        <div class="card section-card">
+          <details class="preview-details">
+            <summary class="section-title preview-summary">
+              <span>View context.md Preview</span>
+              <span class="badge badge-subtle">Markdown</span>
+            </summary>
+            <pre id="clip-preview-text" class="code-preview">Select "Refresh" or load a web page to preview context.md...</pre>
+          </details>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="actions-container">
+          <button id="btn-sidepanel-download" class="btn btn-primary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Package &amp; Download .UKA
+          </button>
+          <button id="btn-sidepanel-sync" class="btn btn-secondary">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path></svg>
+            Sync to CKP Platform
+          </button>
+        </div>
+
+        <div id="clip-status-message" class="status-banner hidden"></div>
+      </div>
+    </main>
+
+    <!-- Tab 2: UKA Inspector -->
+    <main id="tab-inspect" class="tab-pane" role="tabpanel">
+      <div class="pane-content">
+        <!-- File Dropzone -->
+        <div id="drop-zone" class="dropzone">
+          <input type="file" id="file-input" accept=".uka,.zip" class="file-input-hidden">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#7a52f4" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <p class="dropzone-title">Drag &amp; drop any <strong>.uka</strong> artifact</p>
+          <p class="dropzone-subtitle">or click to browse local files</p>
+        </div>
+
+        <!-- Inspection Results (Hidden by default) -->
+        <div id="inspect-results" class="inspect-results hidden">
+          <!-- Integrity Verification Banner -->
+          <div id="integrity-banner" class="integrity-banner valid">
+            <div class="integrity-icon" id="integrity-icon">✓</div>
+            <div>
+              <div class="integrity-title" id="integrity-title">SHA-256 Integrity Verified</div>
+              <div class="integrity-desc" id="integrity-desc">All files match cryptographic signatures in manifest.json</div>
+            </div>
+          </div>
+
+          <!-- Manifest Metadata -->
+          <div class="card section-card">
+            <div class="section-title">Artifact Manifest</div>
+            <div class="prop-table">
+              <div class="prop-row">
+                <span class="prop-key">Artifact ID</span>
+                <span class="prop-val code-val" id="ins-artifact-id">--</span>
+              </div>
+              <div class="prop-row">
+                <span class="prop-key">Title</span>
+                <span class="prop-val" id="ins-title">--</span>
+              </div>
+              <div class="prop-row">
+                <span class="prop-key">Domain</span>
+                <span class="prop-val" id="ins-domain">--</span>
+              </div>
+              <div class="prop-row">
+                <span class="prop-key">Created</span>
+                <span class="prop-val" id="ins-created">--</span>
+              </div>
+              <div class="prop-row">
+                <span class="prop-key">Total Size</span>
+                <span class="prop-val" id="ins-size">--</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Topology & Vector Stats -->
+          <div class="card section-card">
+            <div class="section-title">Graph &amp; Embeddings Topology</div>
+            <div class="stats-ribbon">
+              <div class="ribbon-item">
+                <span class="ribbon-val" id="ins-nodes-count">0</span>
+                <span class="ribbon-lbl">Nodes</span>
+              </div>
+              <div class="ribbon-item">
+                <span class="ribbon-val" id="ins-edges-count">0</span>
+                <span class="ribbon-lbl">Edges</span>
+              </div>
+              <div class="ribbon-item">
+                <span class="ribbon-val" id="ins-chunks-count">0</span>
+                <span class="ribbon-lbl">Chunks</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Files Tree with SHA-256 status -->
+          <div class="card section-card">
+            <div class="section-title">Packaged Files &amp; Hashes</div>
+            <div id="file-verification-list" class="file-list"></div>
+          </div>
+
+          <!-- Component Viewer -->
+          <div class="card section-card">
+            <div class="section-header-flex">
+              <span class="section-title">Layer 1: Human &amp; Zero-Shot Context</span>
+            </div>
+            <pre id="ins-context-view" class="code-preview"></pre>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Tab 3: Settings -->
+    <main id="tab-settings" class="tab-pane" role="tabpanel">
+      <div class="pane-content">
+        <div class="card section-card">
+          <div class="section-title">CKP Platform Gateway</div>
+          <div class="form-group">
+            <label class="form-label" for="cfg-backend-url">REST API Endpoint</label>
+            <input type="url" id="cfg-backend-url" class="form-input" value="http://localhost:8000" placeholder="http://localhost:8000">
+            <span class="help-text">Central FastAPI orchestrator endpoint for UKA rehydration.</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="cfg-passcode">Admin Passcode</label>
+            <input type="password" id="cfg-passcode" class="form-input" value="ckp-admin-2026">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="cfg-default-domain">Default Ontology Domain</label>
+            <select id="cfg-default-domain" class="form-select">
+              <option value="healthtech" selected>Healthcare / Clinical</option>
+              <option value="fintech">Financial / Quantitative</option>
+              <option value="general">General Enterprise</option>
+            </select>
+          </div>
+
+          <button id="btn-test-connection" class="btn btn-secondary btn-full">
+            Test Backend Connection
+          </button>
+          <div id="connection-status" class="connection-status"></div>
+        </div>
+
+        <div class="card section-card">
+          <div class="section-title">Extension Telemetry</div>
+          <div class="prop-table">
+            <div class="prop-row">
+              <span class="prop-key">Saved Bundles</span>
+              <span class="prop-val" id="cfg-bundles-count">0</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-key">UKA Spec Version</span>
+              <span class="prop-val">v0.1.0 (Canonical)</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-key">Engine</span>
+              <span class="prop-val">Native Chromium Streams</span>
+            </div>
+          </div>
+        </div>
+
+        <button id="btn-save-settings" class="btn btn-primary btn-full">
+          Save Settings
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
+
