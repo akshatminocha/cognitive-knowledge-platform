@@ -109,6 +109,10 @@ class AdminConfigRequest(BaseModel):
     guardrails: list[dict]
     promptThreshold: float
     gateway: dict
+    activeDomain: Optional[str] = "healthtech"
+    enableZeroShotAudit: Optional[bool] = True
+    zeroShotAuditThreshold: Optional[float] = 0.6
+    strictComplianceMode: Optional[bool] = False
 
 
 class CrawlerToggleRequest(BaseModel):
@@ -811,6 +815,59 @@ async def get_guardrail_diagnostics(request: Request):
     if guardrail_engine:
         return guardrail_engine.config.model_dump()
     return {"status": "no_guardrail_engine"}
+
+
+class GuardrailInspectRequest(BaseModel):
+    text: str
+    domain: Optional[str] = "healthtech"
+    user_role: Optional[str] = "viewer"
+
+
+@router.post("/guardrails/inspect")
+async def inspect_guardrail_text(request: Request, body: GuardrailInspectRequest):
+    """
+    Live PII/PHI & Policy Inspection endpoint for the Admin Governance Hub.
+    Analyzes input text, detects entities across Presidio, Regex, and Zero-Shot LLM,
+    and returns policy evaluation decisions.
+    """
+    guardrails = getattr(request.app.state, "guardrails", None)
+    if not guardrails:
+        from guardrails.engine import GuardrailEngine
+        guardrails = GuardrailEngine()
+
+    findings = guardrails._data_protector.detect_entities(body.text)
+    masked_text, tmap = guardrails._data_protector.mask_text(body.text, user_role=body.user_role)
+
+    # Evaluate PEP / PDP policy
+    entity_types = [f["entity_type"] for f in findings]
+    policy_verdict = guardrails._policy_pdp.evaluate_input_policy(
+        user_role=body.user_role,
+        domain=body.domain or "healthtech",
+        detected_entities=entity_types,
+    )
+
+    unmask_verdict = guardrails._policy_pdp.evaluate_unmask_policy(
+        user_role=body.user_role,
+        entity_types=entity_types,
+    )
+
+    return {
+        "original_text": body.text,
+        "masked_text": masked_text,
+        "findings": findings,
+        "tokens_created": tmap.size,
+        "policy_decision": {
+            "allow": policy_verdict.allow,
+            "action": policy_verdict.action.value,
+            "reason": policy_verdict.reason,
+            "rule": policy_verdict.matched_rule,
+        },
+        "unmask_decision": {
+            "allow": unmask_verdict.allow,
+            "action": unmask_verdict.action.value,
+            "reason": unmask_verdict.reason,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

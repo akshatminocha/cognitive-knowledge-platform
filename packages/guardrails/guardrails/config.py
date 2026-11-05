@@ -46,7 +46,7 @@ class DataProtectionConfig(BaseModel):
         description="Active industry domain for entity profile selection",
     )
     score_threshold: float = Field(
-        default=0.5,
+        default=0.4,
         description="Minimum confidence score for entity detection",
     )
     custom_entities: list[CustomEntityPattern] = Field(
@@ -64,6 +64,38 @@ class DataProtectionConfig(BaseModel):
     entropy_threshold: float = Field(
         default=3.6,
         description="Minimum Shannon entropy score to flag arbitrary secret tokens",
+    )
+    enable_zero_shot_audit: bool = Field(
+        default=True,
+        description="Enable low-latency LLM auditor for ambiguous/borderline entities",
+    )
+    zero_shot_audit_threshold: float = Field(
+        default=0.6,
+        description="Trigger LLM audit when Presidio confidence is below this threshold (e.g. 0.3 <= score < 0.6)",
+    )
+    zero_shot_model: str = Field(
+        default="gemini-2.5-flash",
+        description="Target model for zero-shot PII audit",
+    )
+    zero_shot_timeout_seconds: float = Field(
+        default=0.8,
+        description="Circuit breaker timeout in seconds for zero-shot LLM audit",
+    )
+    strict_compliance_mode: bool = Field(
+        default=False,
+        description="Enforce zero-shot LLM audit on all inputs regardless of Presidio confidence",
+    )
+    enable_encrypted_token_map: bool = Field(
+        default=True,
+        description="Use cryptographic salted envelope encryption for TokenMap",
+    )
+    token_map_salt: Optional[str] = Field(
+        default=None,
+        description="Optional secret salt for cryptographic TokenMap",
+    )
+    opa_webhook_url: Optional[str] = Field(
+        default=None,
+        description="Optional external OPA endpoint e.g. http://localhost:8181/v1/data/guardrails/allow",
     )
 
 

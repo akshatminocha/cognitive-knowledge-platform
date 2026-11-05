@@ -392,3 +392,179 @@ input:checked + .toggle-slider::before {
   font-style: italic;
   margin-right: auto;
 }
+
+/* ===== Domain Presets Bar ===== */
+.domain-presets-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.preset-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+.preset-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+.preset-btn.active {
+  background: var(--accent-subtle);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+/* ===== Live PII & Policy Inspector ===== */
+.pii-inspector-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.inspector-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.role-selector-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inspector-role-lbl {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.inspector-role-select {
+  background: var(--bg-tertiary, #1f2937);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  outline: none;
+}
+.inspector-btn {
+  font-size: 0.8rem;
+  padding: 8px 16px;
+}
+.inspector-textarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.82rem;
+  padding: 10px;
+  resize: vertical;
+  outline: none;
+}
+.inspector-textarea:focus {
+  border-color: var(--accent-primary);
+}
+.inspector-results-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 8px;
+}
+@media (max-width: 768px) {
+  .inspector-results-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.inspector-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.inspector-res-lbl {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.inspector-code-box {
+  background: #060911;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.78rem;
+  color: #38bdf8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+}
+.policy-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.policy-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+.action-mask {
+  background: rgba(122, 82, 244, 0.2);
+  color: #c4b5fd;
+  border: 1px solid rgba(122, 82, 244, 0.4);
+}
+.policy-rule-lbl {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+.inspector-findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.finding-pill-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 0.76rem;
+}
+.finding-type {
+  font-weight: 600;
+  color: #c4b5fd;
+}
+.finding-val {
+  font-family: monospace;
+  color: var(--text-secondary);
+}
+.finding-source {
+  font-size: 0.68rem;
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.finding-score {
+  font-size: 0.68rem;
+  color: var(--accent-emerald, #10b981);
+  font-weight: 600;
+}

@@ -14,7 +14,8 @@ It is also independently pip-installable for standalone use.
 __version__ = "0.1.0"
 
 from .engine import GuardrailEngine, InputGuardResult, OutputGuardResult
-from .data_protection import DataProtector
+from .data_protection import DataProtector, validate_npi_luhn, validate_dea_checksum
+from .policy_engine import PolicyAction, PolicyDecision, PolicyDecisionPoint
 from .secret_scanner import SecretScanner, calculate_shannon_entropy, is_high_entropy_candidate
 from .input_safety import InputSafetyGuard, InputSafetyViolation
 from .tool_safety import ToolSafetyGuard, ToolSafetyViolation
@@ -33,6 +34,11 @@ __all__ = [
     "InputGuardResult",
     "OutputGuardResult",
     "DataProtector",
+    "validate_npi_luhn",
+    "validate_dea_checksum",
+    "PolicyAction",
+    "PolicyDecision",
+    "PolicyDecisionPoint",
     "SecretScanner",
     "calculate_shannon_entropy",
     "is_high_entropy_candidate",
